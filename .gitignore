@@ -1,0 +1,10 @@
+/target
+/sets/target
+/groups/target
+/rings/target
+/combinatorics/target
+/geometry/target
+/drawing/target
+.vscode/launch.json
+/examples/src/bin/*
+/guide/book

@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = ["animator"]
+
+[profile.bench]
+debug = true
+
+# https://github.com/pksunkara/cargo-workspaces
+# To publish
+# Update CHANGELOG
+# Install cargo-workspaces
+#   cargo install cargo-workspaces
+# Bump versions
+#   cargo ws version --no-individual-tags --exact --force "sets nzq groups rings geometry algebraeon macros"
+# Check all ok:
+#   cargo ws publish --no-individual-tags --from-git --dry-run
+# Publish
+#   cargo ws publish --no-individual-tags --from-git
