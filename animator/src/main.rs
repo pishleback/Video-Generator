@@ -8,6 +8,7 @@ pub mod shape;
 pub mod timeline;
 pub mod video;
 
+#[allow(unused)]
 use crate::{
     animation::{Animation, BoundaryMode, ShapeElement, ShapeElementParams},
     colour::ColourRgba,
