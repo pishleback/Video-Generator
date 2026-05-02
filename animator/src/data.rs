@@ -5,7 +5,6 @@ use std::{
     path::{Path, PathBuf},
     sync::{Mutex, OnceLock},
 };
-use tempfile::NamedTempFile;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum FileSpec {
@@ -102,7 +101,6 @@ impl DataCache {
         }
 
         // The file does not exist in the cache so we'll generate it now
-        let temp_file = NamedTempFile::with_suffix(format!(".{}", file_spec.extension())).unwrap();
         let n = cache.len();
         let file_path = self.path.join(format!("{}.{}", n, file_spec.extension()));
         let cache_entry = DataCacheEntry {
@@ -123,9 +121,8 @@ impl DataCache {
         drop(cache);
 
         println!("Generating file: {:?}", file_spec);
-        file_spec.make_file(temp_file.path());
+        file_spec.make_file(&file_path);
 
-        std::fs::rename(temp_file.path(), &file_path).unwrap();
         assert!(file_path.exists());
 
         file_path

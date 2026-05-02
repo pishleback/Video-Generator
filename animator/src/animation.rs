@@ -332,7 +332,7 @@ impl<const WIDTH: u32, const HEIGHT: u32> Animation<WIDTH, HEIGHT> {
             images,
             audio: vec![
                 VideoAudioClip {
-                    at_t: 0.0,
+                    at_t: 0.0 - *from_t,
                     spec: AudioSpec::File {
                         path: "\
 /home/michael/Documents/GitHub/Animation-Generator/assets/soundscrate-dreaming-cello.mp3"
@@ -340,7 +340,7 @@ impl<const WIDTH: u32, const HEIGHT: u32> Animation<WIDTH, HEIGHT> {
                     },
                 },
                 VideoAudioClip {
-                    at_t: 2.0,
+                    at_t: 2.0 - *from_t,
                     spec: AudioSpec::File {
                         path: "\
 /home/michael/Documents/GitHub/Animation-Generator/assets/soundscrate-switch-click-5.mp3"

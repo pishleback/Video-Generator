@@ -71,8 +71,8 @@ fn main() {
     elem1.set_boundary_frac(t, (2.0, 3.0), FastStartInterp { duration: 2.5 });
     elem1.set_fill_alpha(t + 1.5, 1.0, LinearInterp { duration: 1.5 });
 
-    t += 4.0;
+    t += 30.0;
 
-    let path = anim.video(0.0, t + 1.0, FPS).get_path();
+    let path = anim.video(2.3, t + 1.0, FPS).get_path();
     std::fs::copy(path, Path::new("out.mp4")).unwrap();
 }

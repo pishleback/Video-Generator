@@ -51,9 +51,23 @@ impl VideoSpec {
         let audio_clips = self
             .audio
             .iter()
-            .map(|VideoAudioClip { at_t, spec }| AudioClip {
-                path: spec.get_path(),
-                start_ms: (at_t * 1000.0) as u64,
+            .map(|VideoAudioClip { at_t, spec }| {
+                if *at_t >= 0.0 {
+                    AudioClip {
+                        path: spec.get_path(),
+                        start_ms: (at_t * 1000.0) as u64,
+                    }
+                } else {
+                    let cut_clip = AudioSpec::Sub {
+                        spec: Box::new(spec.clone()),
+                        from: Some(-at_t),
+                        to: None,
+                    };
+                    AudioClip {
+                        path: cut_clip.get_path(),
+                        start_ms: 0,
+                    }
+                }
             })
             .collect::<Vec<_>>();
 
@@ -90,7 +104,7 @@ impl VideoSpec {
                     .map(|i| format!("[a{}]", i))
                     .collect();
                 filter.push_str(&format!(
-                    "{}amix=inputs={}[aout]",
+                    "{}amix=inputs={}[aout];[aout]apad[aout2]",
                     inputs.join(""),
                     audio_clips.len()
                 ));
@@ -102,7 +116,7 @@ impl VideoSpec {
                 "-map".to_string(),
                 "0:v".to_string(),
                 "-map".to_string(),
-                "[aout]".to_string(),
+                "[aout2]".to_string(),
                 "-shortest".to_string(),
             ]);
         }
@@ -119,15 +133,16 @@ impl VideoSpec {
             path.to_string_lossy().into(),
         ]);
 
-        #[allow(unused)]
         let output = std::process::Command::new("ffmpeg")
             .args(args)
             .output()
             .unwrap();
-
-        println!("status: {}", output.status);
-        println!("stdout:\n{}", String::from_utf8_lossy(&output.stdout));
-        println!("stderr:\n{}", String::from_utf8_lossy(&output.stderr));
+        if !output.status.success() {
+            println!("status: {}", output.status);
+            println!("stdout:\n{}", String::from_utf8_lossy(&output.stdout));
+            println!("stderr:\n{}", String::from_utf8_lossy(&output.stderr));
+            panic!("ffmpeg failed");
+        }
     }
 
     pub fn get_path(&self) -> PathBuf {
