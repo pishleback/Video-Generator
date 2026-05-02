@@ -1,5 +1,5 @@
 use crate::{
-    colour::Colour,
+    colour::ColourRgba,
     data::{FileSpec, cache},
     shape::ShapeImage,
 };
@@ -15,7 +15,7 @@ pub enum ImageSpec {
     Filled {
         width: u32,
         height: u32,
-        colour: Colour,
+        colour: ColourRgba,
     },
     BlitStack {
         width: u32,

@@ -1,5 +1,5 @@
 use crate::data::{FileSpec, cache};
-use crate::{colour::Colour, image::ImageSpec};
+use crate::{colour::ColourRgba, image::ImageSpec};
 use geo::algorithm::contains::Contains;
 use geo::{
     AffineOps, AffineTransform, Area, BooleanOps, BoundingRect, Buffer, Coord, Distance, Euclidean,
@@ -42,9 +42,13 @@ pub enum ShapeSpec {
         shape1: Box<ShapeSpec>,
         shape2: Box<ShapeSpec>,
     },
-    Intersection {
+    Intersect {
         shape1: Box<ShapeSpec>,
         shape2: Box<ShapeSpec>,
+    },
+    Subtract {
+        target: Box<ShapeSpec>,
+        tool: Box<ShapeSpec>,
     },
     FromImage(FromImageShape),
 }
@@ -102,9 +106,15 @@ impl ShapeSpec {
                     .unwrap(),
             )
             .unwrap(),
-            ShapeSpec::Intersection { shape1, shape2 } => std::fs::write(
+            ShapeSpec::Intersect { shape1, shape2 } => std::fs::write(
                 path,
-                serde_json::to_string_pretty(&shape1.get_shape().intersection(&shape2.get_shape()))
+                serde_json::to_string_pretty(&shape1.get_shape().intersect(&shape2.get_shape()))
+                    .unwrap(),
+            )
+            .unwrap(),
+            Self::Subtract { target, tool } => std::fs::write(
+                path,
+                serde_json::to_string_pretty(&target.get_shape().subtract(&tool.get_shape()))
                     .unwrap(),
             )
             .unwrap(),
@@ -116,63 +126,70 @@ impl ShapeSpec {
         serde_json::from_str(std::fs::read_to_string(shape_path).unwrap().as_str()).unwrap()
     }
 
-    pub fn scale(self, scale_factor: f64) -> Self {
+    pub fn scale(&self, scale_factor: f64) -> Self {
         Self::Scale {
-            shape: Box::new(self),
+            shape: Box::new(self.clone()),
             scale_factor,
         }
     }
 
-    pub fn translate(self, x_offset: f64, y_offset: f64) -> Self {
+    pub fn translate(&self, x_offset: f64, y_offset: f64) -> Self {
         Self::Translate {
-            shape: Box::new(self),
+            shape: Box::new(self.clone()),
             x_offset,
             y_offset,
         }
     }
 
-    pub fn normalize(self) -> Self {
+    pub fn normalize(&self) -> Self {
         Self::Normalize {
-            shape: Box::new(self),
+            shape: Box::new(self.clone()),
         }
     }
 
-    pub fn boundary(self, radius: f64) -> Self {
+    pub fn boundary(&self, radius: f64) -> Self {
         Self::PartialBoundary {
-            shape: Box::new(self),
+            shape: Box::new(self.clone()),
             radius,
             start_frac: 0.0,
             end_frac: 1.0,
         }
     }
 
-    pub fn partial_boundary(self, radius: f64, frac_interval: (f64, f64)) -> Self {
+    pub fn partial_boundary(&self, radius: f64, frac_interval: (f64, f64)) -> Self {
         Self::PartialBoundary {
-            shape: Box::new(self),
+            shape: Box::new(self.clone()),
             radius,
             start_frac: frac_interval.0,
             end_frac: frac_interval.1,
         }
     }
 
-    pub fn buffer(self, radius: f64) -> Self {
+    pub fn buffer(&self, radius: f64) -> Self {
         Self::Buffer {
-            shape: Box::new(self),
+            shape: Box::new(self.clone()),
             radius,
         }
     }
 
-    pub fn union(self, other: Self) -> Self {
+    pub fn union(&self, other: &Self) -> Self {
         Self::Union {
-            shape1: Box::new(self),
-            shape2: Box::new(other),
+            shape1: Box::new(self.clone()),
+            shape2: Box::new(other.clone()),
         }
     }
 
-    pub fn intersection(self, other: Self) -> Self {
-        Self::Intersection {
-            shape1: Box::new(self),
-            shape2: Box::new(other),
+    pub fn intersect(&self, other: &Self) -> Self {
+        Self::Intersect {
+            shape1: Box::new(self.clone()),
+            shape2: Box::new(other.clone()),
+        }
+    }
+
+    pub fn subtract(&self, other: &Self) -> Self {
+        Self::Subtract {
+            target: Box::new(self.clone()),
+            tool: Box::new(other.clone()),
         }
     }
 
@@ -180,8 +197,8 @@ impl ShapeSpec {
         &self,
         width: u32,
         height: u32,
-        bg_colour: Colour,
-        shape_colour: Colour,
+        bg_colour: ColourRgba,
+        shape_colour: ColourRgba,
     ) -> ImageSpec {
         ImageSpec::Shape(ShapeImage {
             width,
@@ -507,8 +524,12 @@ impl ShapeData {
         Self::new(self.multipolygon.union(&other.multipolygon))
     }
 
-    pub fn intersection(self, other: &Self) -> Self {
+    pub fn intersect(self, other: &Self) -> Self {
         Self::new(self.multipolygon.intersection(&other.multipolygon))
+    }
+
+    pub fn subtract(self, other: &Self) -> Self {
+        Self::new(self.multipolygon.difference(&other.multipolygon))
     }
 
     pub fn exmaple() -> Self {
@@ -563,8 +584,8 @@ impl ShapeData {
 pub struct ShapeImage {
     pub width: u32,
     pub height: u32,
-    pub bg_colour: Colour,
-    pub shape_colour: Colour,
+    pub bg_colour: ColourRgba,
+    pub shape_colour: ColourRgba,
     pub shape: Box<ShapeSpec>,
 }
 
