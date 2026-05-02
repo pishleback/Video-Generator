@@ -16,7 +16,8 @@ use crate::{
     interpolation::{Exp2Interp, ExpInterp, FastEndInterp, FastStartInterp, LinearInterp},
     shape::{FromImageShape, ShapeSpec},
 };
-use std::path::Path;
+use crate::{audio::AudioSpec, video::VideoSpec};
+use std::path::{Path, PathBuf};
 
 fn main() {
     let mut t = 0.0;
@@ -44,7 +45,7 @@ fn main() {
         ShapeSpec::FromImage(FromImageShape {
             image: ImageSpec::Latex(LatexImage {
                 scale: 8192,
-                expr: r#"\frac{-b \pm \sqrt{b^2 - 4ac}}{8a}"#.to_string(),
+                expr: r#"\frac{-b \pm \sqrt{b^2 - 4ac}}{2a}"#.to_string(),
             }),
         })
         .normalize(),
@@ -66,13 +67,29 @@ fn main() {
         .boundary_frac((0.0, 0.0))
         .scale(40.0),
     );
-    let elem1 = anim.add(elem1);
+    let elem1 = anim.add_visual(elem1);
 
     elem1.set_boundary_frac(t, (2.0, 3.0), FastStartInterp { duration: 2.5 });
     elem1.set_fill_alpha(t + 1.5, 1.0, LinearInterp { duration: 1.5 });
 
     t += 30.0;
 
-    let path = anim.video(2.2, t + 1.0, FPS).get_path();
-    std::fs::copy(path, Path::new("out.mp4")).unwrap();
+    anim.add_audio(
+        0.0,
+        AudioSpec::File {
+            path: "\
+/home/michael/Documents/GitHub/Animation-Generator/assets/soundscrate-dreaming-cello.mp3"
+                .into(),
+        },
+    );
+
+    let path = anim.video(0.0, t + 1.0, FPS).get_path();
+    std::fs::copy(path.clone(), Path::new("out.mp4")).unwrap();
+
+    let path = PathBuf::from(
+        "/home/michael/Documents/GitHub/Animation-Generator/assets/2026-05-02 21-55-09.mp4",
+    );
+    let images = VideoSpec::File { path: path.clone() }.get_images();
+    println!("{:?}", images.len());
+    println!("{:?}", VideoSpec::File { path: path.clone() }.get_fps())
 }

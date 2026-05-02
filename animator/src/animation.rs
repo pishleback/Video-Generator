@@ -8,7 +8,7 @@ use crate::{
     interpolation::Interp,
     shape::ShapeSpec,
     timeline::{ConstantTimeline, InterpTimeline, Timeline},
-    video::{VideoAudioClip, VideoSpec},
+    video::{VideoAudioClip, VideoCompiledSpec, VideoSpec},
 };
 use ordered_float::OrderedFloat;
 use std::fmt::Debug;
@@ -277,9 +277,16 @@ impl<const WIDTH: u32, const HEIGHT: u32> AnimationElement<WIDTH, HEIGHT>
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct AnimationAudioClip {
+    pub at_t: f64,
+    pub audio: AudioSpec,
+}
+
 pub struct Animation<const WIDTH: u32, const HEIGHT: u32> {
     default_image: ImageSpec,
     elements: Vec<Rc<dyn AnimationElement<WIDTH, HEIGHT>>>,
+    audio: Vec<AnimationAudioClip>,
 }
 
 impl<const WIDTH: u32, const HEIGHT: u32> Animation<WIDTH, HEIGHT> {
@@ -291,13 +298,21 @@ impl<const WIDTH: u32, const HEIGHT: u32> Animation<WIDTH, HEIGHT> {
                 colour: default_bg,
             },
             elements: vec![],
+            audio: vec![],
         }
     }
 
-    pub fn add<E: AnimationElement<WIDTH, HEIGHT> + 'static>(&mut self, element: E) -> Rc<E> {
+    pub fn add_visual<E: AnimationElement<WIDTH, HEIGHT> + 'static>(
+        &mut self,
+        element: E,
+    ) -> Rc<E> {
         let element = Rc::new(element);
         self.elements.push(element.clone());
         element
+    }
+
+    pub fn add_audio(&mut self, t: f64, audio: AudioSpec) {
+        self.audio.push(AnimationAudioClip { at_t: t, audio });
     }
 
     pub fn frame(&self, t: impl Into<OrderedFloat<f64>>) -> ImageSpec {
@@ -325,29 +340,19 @@ impl<const WIDTH: u32, const HEIGHT: u32> Animation<WIDTH, HEIGHT> {
             images.push(self.frame(t));
             t += dt;
         }
-        VideoSpec {
+        VideoSpec::Compiled(VideoCompiledSpec {
             width: WIDTH,
             height: HEIGHT,
             fps,
             images,
-            audio: vec![
-                VideoAudioClip {
-                    at_t: 0.0 - *from_t,
-                    spec: AudioSpec::File {
-                        path: "\
-/home/michael/Documents/GitHub/Animation-Generator/assets/soundscrate-dreaming-cello.mp3"
-                            .into(),
-                    },
-                },
-                VideoAudioClip {
-                    at_t: 2.0 - *from_t,
-                    spec: AudioSpec::File {
-                        path: "\
-/home/michael/Documents/GitHub/Animation-Generator/assets/soundscrate-switch-click-5.mp3"
-                            .into(),
-                    },
-                },
-            ],
-        }
+            audio: self
+                .audio
+                .iter()
+                .map(|AnimationAudioClip { at_t, audio }| VideoAudioClip {
+                    at_t: *at_t - *from_t,
+                    spec: audio.clone(),
+                })
+                .collect(),
+        })
     }
 }

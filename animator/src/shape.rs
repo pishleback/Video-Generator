@@ -14,7 +14,7 @@ use imageproc::drawing::draw_polygon_mut;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-const AA_RESCALE: u32 = 4; // This is a bit bodge and slow... It would be better to draw with AA using a better library
+const AA_RESCALE: u32 = 1; // This is a bit bodge and slow... It would be better to draw with AA using a better library
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ShapeSpec {

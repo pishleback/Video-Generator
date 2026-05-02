@@ -1,4 +1,9 @@
-use crate::{audio::AudioSpec, image::ImageSpec, shape::ShapeSpec, video::VideoSpec};
+use crate::{
+    audio::AudioSpec,
+    image::ImageSpec,
+    shape::ShapeSpec,
+    video::{VideoCompiledSpec, VideoSpec},
+};
 use serde::{Deserialize, Serialize};
 use std::{
     io::Write,
@@ -89,9 +94,9 @@ impl DataCache {
                 let file_path = if cache_entry.path.exists() {
                     cache_entry.path.clone()
                 } else {
-                    println!("Regenerating file: {:?}", file_spec);
                     let file_path = cache_entry.path.clone();
                     drop(cache);
+                    println!("Regenerating file: {:?}", file_spec);
                     file_spec.make_file(&file_path);
                     assert!(file_path.exists());
                     file_path
