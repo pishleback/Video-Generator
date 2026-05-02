@@ -43,7 +43,7 @@ pub trait Interp<V>: Debug {
 }
 
 #[derive(Debug)]
-struct ImmediateInterp {}
+pub struct ImmediateInterp {}
 
 impl<V: Clone> Interp<V> for ImmediateInterp {
     fn interp(&self, from: &V, to: &V, dt: OrderedFloat<f64>) -> V {
@@ -94,14 +94,6 @@ impl<V: Interpable + Clone> Interp<V> for Exp2Interp {
     }
 }
 
-#[derive(Debug)]
-struct InterpTimelineKeyframe<V> {
-    at_t: OrderedFloat<f64>,
-    from: V,
-    to: V,
-    interp: Box<dyn Interp<V>>,
-}
-
 #[derive(Debug, Clone, Copy)]
 pub enum InterpType {
     Immediate,
@@ -111,60 +103,12 @@ pub enum InterpType {
 }
 
 impl InterpType {
-    fn interp<V: Interpable + Clone>(self) -> Box<dyn Interp<V>> {
+    pub fn interp<V: Interpable + Clone>(self) -> Box<dyn Interp<V>> {
         match self {
             InterpType::Immediate => Box::new(ImmediateInterp {}),
             InterpType::Linear { duration } => Box::new(LinearInterp { duration }),
             InterpType::Exp { duration } => Box::new(ExpInterp { duration }),
             InterpType::Exp2 { duration } => Box::new(Exp2Interp { duration }),
         }
-    }
-}
-
-#[derive(Debug)]
-pub struct InterpTimeline<V> {
-    initial_value: V,
-    keyframes: Vec<InterpTimelineKeyframe<V>>,
-}
-
-impl<V: Clone> InterpTimeline<V> {
-    pub fn new(initial_value: V) -> Self {
-        Self {
-            initial_value,
-            keyframes: vec![],
-        }
-    }
-
-    pub fn get(&self, t: OrderedFloat<f64>) -> V {
-        for keyframe in self.keyframes.iter().rev() {
-            if keyframe.at_t <= t {
-                let dt = t - keyframe.at_t;
-                return keyframe.interp.interp(&keyframe.from, &keyframe.to, dt);
-            }
-        }
-        self.initial_value.clone()
-    }
-
-    pub fn set_raw(&mut self, t: OrderedFloat<f64>, to: V, interp: Box<dyn Interp<V>>) {
-        let from = self.get(t);
-        self.keyframes.push(InterpTimelineKeyframe {
-            at_t: t,
-            from,
-            to,
-            interp,
-        });
-        self.keyframes.sort_by_key(|k| k.at_t);
-    }
-}
-
-impl<V: Clone> InterpTimeline<V> {
-    pub fn set_immediate(&mut self, t: OrderedFloat<f64>, to: V) {
-        self.set_raw(t, to, Box::new(ImmediateInterp {}));
-    }
-}
-
-impl<V: Interpable + Clone> InterpTimeline<V> {
-    pub fn set(&mut self, t: OrderedFloat<f64>, to: V, interp_type: InterpType) {
-        self.set_raw(t, to, interp_type.interp());
     }
 }

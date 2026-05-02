@@ -4,8 +4,9 @@ use std::rc::Rc;
 use crate::{
     colour::{ColourRgb, ColourRgba},
     image::ImageSpec,
-    interpolation::{InterpTimeline, InterpType},
+    interpolation::InterpType,
     shape::ShapeSpec,
+    timeline::{ConstantTimeline, InterpTimeline, Timeline},
     video::VideoSpec,
 };
 use ordered_float::OrderedFloat;
@@ -23,7 +24,7 @@ pub enum BoundaryMode {
 }
 
 pub struct ShapeElement<const WIDTH: u32, const HEIGHT: u32> {
-    shape: ShapeSpec,
+    shape: Box<dyn Timeline<ShapeSpec>>,
     fill_colour: InterpTimeline<ColourRgba>,
     boundary_colour: InterpTimeline<ColourRgba>,
     boundary_frac: InterpTimeline<(f64, f64)>,
@@ -39,7 +40,7 @@ impl<const WIDTH: u32, const HEIGHT: u32> ShapeElement<WIDTH, HEIGHT> {
         boundary_mode: BoundaryMode,
     ) -> Self {
         Self {
-            shape,
+            shape: Box::new(ConstantTimeline::new(shape)),
             fill_colour: InterpTimeline::new(fill_colour),
             boundary_colour: InterpTimeline::new(boundary_colour),
             boundary_frac: InterpTimeline::new(boundary_frac),
@@ -58,14 +59,14 @@ impl<const WIDTH: u32, const HEIGHT: u32> ShapeElement<WIDTH, HEIGHT> {
         ColourRgb { r, g, b }: ColourRgb,
         interp_type: InterpType,
     ) -> Self {
-        let a = self.fill_colour.get(t.into()).a;
+        let a = self.fill_colour.at_time(t.into()).a;
         self.fill_colour
             .set(t.into(), ColourRgba { r, g, b, a }, interp_type);
         self
     }
 
     pub fn set_fill_alpha(mut self, t: f64, alpha: f64, interp_type: InterpType) -> Self {
-        let ColourRgba { r, g, b, .. } = self.fill_colour.get(t.into());
+        let ColourRgba { r, g, b, .. } = self.fill_colour.at_time(t.into());
         self.fill_colour
             .set(t.into(), ColourRgba { r, g, b, a: alpha }, interp_type);
         self
@@ -82,14 +83,14 @@ impl<const WIDTH: u32, const HEIGHT: u32> ShapeElement<WIDTH, HEIGHT> {
         ColourRgb { r, g, b }: ColourRgb,
         interp_type: InterpType,
     ) -> Self {
-        let a = self.boundary_colour.get(t.into()).a;
+        let a = self.boundary_colour.at_time(t.into()).a;
         self.boundary_colour
             .set(t.into(), ColourRgba { r, g, b, a }, interp_type);
         self
     }
 
     pub fn set_boundary_alpha(mut self, t: f64, alpha: f64, interp_type: InterpType) -> Self {
-        let ColourRgba { r, g, b, .. } = self.boundary_colour.get(t.into());
+        let ColourRgba { r, g, b, .. } = self.boundary_colour.at_time(t.into());
         self.boundary_colour
             .set(t.into(), ColourRgba { r, g, b, a: alpha }, interp_type);
         self
@@ -112,16 +113,17 @@ impl<const WIDTH: u32, const HEIGHT: u32> AnimationElement<WIDTH, HEIGHT>
     fn apply(&self, t: OrderedFloat<f64>, image_spec: ImageSpec) -> ImageSpec {
         let shape = self
             .shape
+            .at_time(t)
             .scale((WIDTH / 2) as f64)
             .translate((WIDTH / 2) as f64, (HEIGHT / 2) as f64);
 
-        let shape_boundary = match self.boundary_mode.get(t) {
+        let shape_boundary = match self.boundary_mode.at_time(t) {
             BoundaryMode::Inner => shape
-                .partial_boundary(6.0, self.boundary_frac.get(t))
+                .partial_boundary(6.0, self.boundary_frac.at_time(t))
                 .intersect(&shape),
-            BoundaryMode::Middle => shape.partial_boundary(3.0, self.boundary_frac.get(t)),
+            BoundaryMode::Middle => shape.partial_boundary(3.0, self.boundary_frac.at_time(t)),
             BoundaryMode::Outer => shape
-                .partial_boundary(6.0, self.boundary_frac.get(t))
+                .partial_boundary(6.0, self.boundary_frac.at_time(t))
                 .subtract(&shape),
         };
 
@@ -131,7 +133,7 @@ impl<const WIDTH: u32, const HEIGHT: u32> AnimationElement<WIDTH, HEIGHT>
             images: vec![
                 ((0.0, 0.0), image_spec),
                 ((0.0, 0.0), {
-                    let ColourRgba { r, g, b, a } = self.fill_colour.get(t);
+                    let ColourRgba { r, g, b, a } = self.fill_colour.at_time(t);
                     shape.image(
                         WIDTH,
                         HEIGHT,
@@ -140,7 +142,7 @@ impl<const WIDTH: u32, const HEIGHT: u32> AnimationElement<WIDTH, HEIGHT>
                     )
                 }),
                 ((0.0, 0.0), {
-                    let ColourRgba { r, g, b, a } = self.boundary_colour.get(t);
+                    let ColourRgba { r, g, b, a } = self.boundary_colour.at_time(t);
                     shape_boundary.image(
                         WIDTH,
                         HEIGHT,
