@@ -73,6 +73,6 @@ fn main() {
 
     t += 30.0;
 
-    let path = anim.video(2.3, t + 1.0, FPS).get_path();
+    let path = anim.video(2.2, t + 1.0, FPS).get_path();
     std::fs::copy(path, Path::new("out.mp4")).unwrap();
 }
