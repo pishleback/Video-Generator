@@ -1,4 +1,4 @@
-use crate::{image::ImageSpec, shape::ShapeSpec, video::VideoSpec};
+use crate::{audio::AudioSpec, image::ImageSpec, shape::ShapeSpec, video::VideoSpec};
 use serde::{Deserialize, Serialize};
 use std::{
     io::Write,
@@ -12,6 +12,7 @@ pub enum FileSpec {
     Image(ImageSpec),
     Video(VideoSpec),
     Shape(ShapeSpec),
+    Audio(AudioSpec),
 }
 
 impl FileSpec {
@@ -20,6 +21,7 @@ impl FileSpec {
             FileSpec::Image(x) => x.make_image(path),
             FileSpec::Video(x) => x.make_video(path),
             FileSpec::Shape(x) => x.make_shape(path),
+            FileSpec::Audio(x) => x.make_audio(path),
         }
     }
 
@@ -28,6 +30,7 @@ impl FileSpec {
             FileSpec::Image(_) => "png",
             FileSpec::Video(_) => "mp4",
             FileSpec::Shape(_) => "txt",
+            FileSpec::Audio(audio_spec) => audio_spec.extension(),
         }
     }
 }

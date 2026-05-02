@@ -2,12 +2,13 @@ use core::f64;
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
+    audio::AudioSpec,
     colour::{ColourRgb, ColourRgba},
     image::ImageSpec,
     interpolation::Interp,
     shape::ShapeSpec,
     timeline::{ConstantTimeline, InterpTimeline, Timeline},
-    video::VideoSpec,
+    video::{VideoAudioClip, VideoSpec},
 };
 use ordered_float::OrderedFloat;
 use std::fmt::Debug;
@@ -329,6 +330,24 @@ impl<const WIDTH: u32, const HEIGHT: u32> Animation<WIDTH, HEIGHT> {
             height: HEIGHT,
             fps,
             images,
+            audio: vec![
+                VideoAudioClip {
+                    at_t: 0.0,
+                    spec: AudioSpec::File {
+                        path: "\
+/home/michael/Documents/GitHub/Animation-Generator/assets/soundscrate-dreaming-cello.mp3"
+                            .into(),
+                    },
+                },
+                VideoAudioClip {
+                    at_t: 2.0,
+                    spec: AudioSpec::File {
+                        path: "\
+/home/michael/Documents/GitHub/Animation-Generator/assets/soundscrate-switch-click-5.mp3"
+                            .into(),
+                    },
+                },
+            ],
         }
     }
 }

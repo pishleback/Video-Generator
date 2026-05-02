@@ -1,4 +1,5 @@
 pub mod animation;
+pub mod audio;
 pub mod colour;
 pub mod data;
 pub mod image;
