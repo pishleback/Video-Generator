@@ -14,6 +14,8 @@ use imageproc::drawing::draw_polygon_mut;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+const AA_RESCALE: u32 = 4; // This is a bit bodge and slow... It would be better to draw with AA using a better library
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ShapeSpec {
     Scale {
@@ -591,8 +593,6 @@ pub struct ShapeImage {
 
 impl ShapeImage {
     pub fn make_image(&self, path: &Path) {
-        let rescale = 2; // This is a bit bodge and slow... It would be better to draw with AA using a better library
-
         // convert geo coords to image points
         let to_points = |coords: &LineString<f64>| -> Vec<imageproc::point::Point<i32>> {
             coords
@@ -601,7 +601,7 @@ impl ShapeImage {
                 .collect()
         };
 
-        let mut img = RgbaImage::new(rescale * self.width, rescale * self.height);
+        let mut img = RgbaImage::new(AA_RESCALE * self.width, AA_RESCALE * self.height);
 
         // background
         for pixel in img.pixels_mut() {
@@ -613,7 +613,7 @@ impl ShapeImage {
         let mpoly =
             shape
                 .multipolygon
-                .scale_around_point(rescale as f64, rescale as f64, (0.0, 0.0));
+                .scale_around_point(AA_RESCALE as f64, AA_RESCALE as f64, (0.0, 0.0));
 
         // outer polygon
         for poly in &mpoly {

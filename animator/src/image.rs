@@ -20,7 +20,7 @@ pub enum ImageSpec {
     BlitStack {
         width: u32,
         height: u32,
-        images: Vec<((f64, f64), ImageSpec)>,
+        layers: Vec<((f64, f64), ImageSpec)>,
     },
     Latex(LatexImage),
     Shape(ShapeImage),
@@ -42,7 +42,7 @@ impl ImageSpec {
             ImageSpec::BlitStack {
                 width,
                 height,
-                images,
+                layers: images,
             } => {
                 let mut result = ImageBuffer::from_fn(*width, *height, |_x, _y| Rgba([0, 0, 0, 0]));
                 for ((x, y), image_spec) in images {

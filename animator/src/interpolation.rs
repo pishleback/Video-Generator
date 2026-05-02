@@ -3,6 +3,8 @@ use ordered_float::OrderedFloat;
 use crate::colour::ColourRgba;
 use std::fmt::Debug;
 
+const DEFAULT_DURATION: f64 = 0.5;
+
 pub trait Interpable {
     fn interp(x: &Self, y: &Self, f: f64) -> Self;
 }
@@ -52,19 +54,22 @@ impl<V: Clone> Interp<V> for ImmediateInterp {
 }
 
 #[derive(Debug)]
-struct LinearInterp {
-    duration: f64,
+pub struct LinearInterp {
+    pub duration: f64,
+}
+
+impl Default for LinearInterp {
+    fn default() -> Self {
+        Self {
+            duration: DEFAULT_DURATION,
+        }
+    }
 }
 
 impl<V: Interpable + Clone> Interp<V> for LinearInterp {
     fn interp(&self, from: &V, to: &V, dt: OrderedFloat<f64>) -> V {
         V::interp(from, to, *dt / self.duration)
     }
-}
-
-#[derive(Debug)]
-struct ExpInterp {
-    duration: f64,
 }
 
 fn exp_smooth(f: f64) -> f64 {
@@ -77,6 +82,19 @@ fn exp_smooth(f: f64) -> f64 {
     }
 }
 
+#[derive(Debug)]
+pub struct ExpInterp {
+    pub duration: f64,
+}
+
+impl Default for ExpInterp {
+    fn default() -> Self {
+        Self {
+            duration: DEFAULT_DURATION,
+        }
+    }
+}
+
 impl<V: Interpable + Clone> Interp<V> for ExpInterp {
     fn interp(&self, from: &V, to: &V, dt: OrderedFloat<f64>) -> V {
         V::interp(from, to, exp_smooth(*dt / self.duration))
@@ -84,8 +102,16 @@ impl<V: Interpable + Clone> Interp<V> for ExpInterp {
 }
 
 #[derive(Debug)]
-struct Exp2Interp {
-    duration: f64,
+pub struct Exp2Interp {
+    pub duration: f64,
+}
+
+impl Default for Exp2Interp {
+    fn default() -> Self {
+        Self {
+            duration: DEFAULT_DURATION,
+        }
+    }
 }
 
 impl<V: Interpable + Clone> Interp<V> for Exp2Interp {
@@ -94,21 +120,58 @@ impl<V: Interpable + Clone> Interp<V> for Exp2Interp {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum InterpType {
-    Immediate,
-    Linear { duration: f64 },
-    Exp { duration: f64 },
-    Exp2 { duration: f64 },
+#[derive(Debug)]
+pub struct FastStartInterp {
+    pub duration: f64,
 }
 
-impl InterpType {
-    pub fn interp<V: Interpable + Clone>(self) -> Box<dyn Interp<V>> {
-        match self {
-            InterpType::Immediate => Box::new(ImmediateInterp {}),
-            InterpType::Linear { duration } => Box::new(LinearInterp { duration }),
-            InterpType::Exp { duration } => Box::new(ExpInterp { duration }),
-            InterpType::Exp2 { duration } => Box::new(Exp2Interp { duration }),
+impl Default for FastStartInterp {
+    fn default() -> Self {
+        Self {
+            duration: DEFAULT_DURATION,
         }
+    }
+}
+
+impl<V: Interpable + Clone> Interp<V> for FastStartInterp {
+    fn interp(&self, from: &V, to: &V, dt: OrderedFloat<f64>) -> V {
+        fn f(x: f64) -> f64 {
+            if x <= 0.0 {
+                0.0
+            } else if x >= 1.0 {
+                1.0
+            } else {
+                1.0 - (1.0 - x) * (1.0 - x)
+            }
+        }
+        V::interp(from, to, f(*dt / self.duration))
+    }
+}
+
+#[derive(Debug)]
+pub struct FastEndInterp {
+    pub duration: f64,
+}
+
+impl Default for FastEndInterp {
+    fn default() -> Self {
+        Self {
+            duration: DEFAULT_DURATION,
+        }
+    }
+}
+
+impl<V: Interpable + Clone> Interp<V> for FastEndInterp {
+    fn interp(&self, from: &V, to: &V, dt: OrderedFloat<f64>) -> V {
+        fn f(x: f64) -> f64 {
+            if x <= 0.0 {
+                0.0
+            } else if x >= 1.0 {
+                1.0
+            } else {
+                x * x
+            }
+        }
+        V::interp(from, to, f(*dt / self.duration))
     }
 }
