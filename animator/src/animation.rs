@@ -314,16 +314,19 @@ impl<const WIDTH: u32, const HEIGHT: u32> Animation<WIDTH, HEIGHT> {
     pub fn add_audio(&mut self, t: f64, audio: AudioSpec) {
         self.audio.push(AnimationAudioClip { at_t: t, audio });
     }
+}
 
-    pub fn frame(&self, t: impl Into<OrderedFloat<f64>>) -> ImageSpec {
-        let t = t.into();
+impl<const WIDTH: u32, const HEIGHT: u32> Timeline<ImageSpec> for Animation<WIDTH, HEIGHT> {
+    fn at_time(&self, t: OrderedFloat<f64>) -> ImageSpec {
         let mut image_spec = self.default_image.clone();
         for element in &self.elements {
             image_spec = element.apply(t, image_spec);
         }
         image_spec
     }
+}
 
+impl<const WIDTH: u32, const HEIGHT: u32> Animation<WIDTH, HEIGHT> {
     pub fn video(
         &self,
         from_t: impl Into<OrderedFloat<f64>>,
@@ -337,7 +340,7 @@ impl<const WIDTH: u32, const HEIGHT: u32> Animation<WIDTH, HEIGHT> {
         let mut images = vec![];
         let mut t = from_t;
         while t <= to_t {
-            images.push(self.frame(t));
+            images.push(self.at_time(t));
             t += dt;
         }
         VideoSpec::Compiled(VideoCompiledSpec {

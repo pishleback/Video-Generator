@@ -1,9 +1,4 @@
-use crate::{
-    audio::AudioSpec,
-    image::ImageSpec,
-    shape::ShapeSpec,
-    video::{VideoCompiledSpec, VideoSpec},
-};
+use crate::{audio::AudioSpec, image::ImageSpec, shape::ShapeSpec, video::VideoSpec};
 use serde::{Deserialize, Serialize};
 use std::{
     io::Write,
