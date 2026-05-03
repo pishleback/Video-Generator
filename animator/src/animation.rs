@@ -1,6 +1,3 @@
-use core::f64;
-use std::{cell::RefCell, rc::Rc};
-
 use crate::{
     audio::AudioSpec,
     colour::{ColourRgb, ColourRgba},
@@ -10,15 +7,16 @@ use crate::{
     timeline::{ConstantTimeline, InterpTimeline, Timeline},
     video::{VideoAudioClip, VideoCompiledSpec, VideoSpec},
 };
-use ordered_float::OrderedFloat;
+use core::f64;
 use std::fmt::Debug;
+use std::{cell::RefCell, rc::Rc};
 
 // Divide the width and height into this many units
 // Also used for thinkness of lines based on the average of the width and height
 const SCREEN_UNITS: f64 = 100.0;
 
 pub trait AnimationElement<const WIDTH: u32, const HEIGHT: u32> {
-    fn apply(&self, t: OrderedFloat<f64>, image_spec: ImageSpec) -> ImageSpec;
+    fn apply(&self, t: f64, image_spec: ImageSpec) -> ImageSpec;
 }
 
 #[derive(Debug)]
@@ -113,19 +111,19 @@ impl<const WIDTH: u32, const HEIGHT: u32> ShapeElement<WIDTH, HEIGHT> {
     }
 
     pub fn set_origin(&self, t: f64, v: (f64, f64), interp: impl Interp<(f64, f64)> + 'static) {
-        self.origin.borrow_mut().set(t.into(), v, interp);
+        self.origin.borrow_mut().set(t, v, interp);
     }
 
     pub fn set_position(&self, t: f64, v: (f64, f64), interp: impl Interp<(f64, f64)> + 'static) {
-        self.position.borrow_mut().set(t.into(), v, interp);
+        self.position.borrow_mut().set(t, v, interp);
     }
 
     pub fn set_scale(&self, t: f64, v: f64, interp: impl Interp<f64> + 'static) {
-        self.scale.borrow_mut().set(t.into(), v, interp);
+        self.scale.borrow_mut().set(t, v, interp);
     }
 
     pub fn set_fill_rgba(&self, t: f64, v: ColourRgba, interp: impl Interp<ColourRgba> + 'static) {
-        self.fill_colour.borrow_mut().set(t.into(), v, interp);
+        self.fill_colour.borrow_mut().set(t, v, interp);
     }
 
     pub fn set_fill_rgb(
@@ -134,23 +132,21 @@ impl<const WIDTH: u32, const HEIGHT: u32> ShapeElement<WIDTH, HEIGHT> {
         ColourRgb { r, g, b }: ColourRgb,
         interp: impl Interp<ColourRgba> + 'static,
     ) {
-        let a = self.fill_colour.borrow().at_time(t.into()).a;
+        let a = self.fill_colour.borrow().at_time(t).a;
         self.fill_colour
             .borrow_mut()
-            .set(t.into(), ColourRgba { r, g, b, a }, interp);
+            .set(t, ColourRgba { r, g, b, a }, interp);
     }
 
     pub fn set_fill_alpha(&self, t: f64, alpha: f64, interp: impl Interp<ColourRgba> + 'static) {
-        let ColourRgba { r, g, b, .. } = self.fill_colour.borrow().at_time(t.into());
+        let ColourRgba { r, g, b, .. } = self.fill_colour.borrow().at_time(t);
         self.fill_colour
             .borrow_mut()
-            .set(t.into(), ColourRgba { r, g, b, a: alpha }, interp);
+            .set(t, ColourRgba { r, g, b, a: alpha }, interp);
     }
 
     pub fn set_boundary_thinkness(&self, t: f64, v: f64, interp: impl Interp<f64> + 'static) {
-        self.boundary_thickness
-            .borrow_mut()
-            .set(t.into(), v, interp);
+        self.boundary_thickness.borrow_mut().set(t, v, interp);
     }
 
     pub fn set_boundary_rgba(
@@ -159,7 +155,7 @@ impl<const WIDTH: u32, const HEIGHT: u32> ShapeElement<WIDTH, HEIGHT> {
         v: ColourRgba,
         interp: impl Interp<ColourRgba> + 'static,
     ) {
-        self.boundary_colour.borrow_mut().set(t.into(), v, interp);
+        self.boundary_colour.borrow_mut().set(t, v, interp);
     }
 
     pub fn set_boundary_rgb(
@@ -168,10 +164,10 @@ impl<const WIDTH: u32, const HEIGHT: u32> ShapeElement<WIDTH, HEIGHT> {
         ColourRgb { r, g, b }: ColourRgb,
         interp: impl Interp<ColourRgba> + 'static,
     ) {
-        let a = self.boundary_colour.borrow().at_time(t.into()).a;
+        let a = self.boundary_colour.borrow().at_time(t).a;
         self.boundary_colour
             .borrow_mut()
-            .set(t.into(), ColourRgba { r, g, b, a }, interp);
+            .set(t, ColourRgba { r, g, b, a }, interp);
     }
 
     pub fn set_boundary_alpha(
@@ -180,10 +176,10 @@ impl<const WIDTH: u32, const HEIGHT: u32> ShapeElement<WIDTH, HEIGHT> {
         alpha: f64,
         interp: impl Interp<ColourRgba> + 'static,
     ) {
-        let ColourRgba { r, g, b, .. } = self.boundary_colour.borrow().at_time(t.into());
+        let ColourRgba { r, g, b, .. } = self.boundary_colour.borrow().at_time(t);
         self.boundary_colour
             .borrow_mut()
-            .set(t.into(), ColourRgba { r, g, b, a: alpha }, interp);
+            .set(t, ColourRgba { r, g, b, a: alpha }, interp);
     }
 
     pub fn set_boundary_frac(
@@ -192,18 +188,18 @@ impl<const WIDTH: u32, const HEIGHT: u32> ShapeElement<WIDTH, HEIGHT> {
         v: (f64, f64),
         interp: impl Interp<(f64, f64)> + 'static,
     ) {
-        self.boundary_frac.borrow_mut().set(t.into(), v, interp);
+        self.boundary_frac.borrow_mut().set(t, v, interp);
     }
 
     pub fn set_boundary_mode(&self, t: f64, v: BoundaryMode) {
-        self.boundary_mode.borrow_mut().set_immediate(t.into(), v);
+        self.boundary_mode.borrow_mut().set_immediate(t, v);
     }
 }
 
 impl<const WIDTH: u32, const HEIGHT: u32> AnimationElement<WIDTH, HEIGHT>
     for ShapeElement<WIDTH, HEIGHT>
 {
-    fn apply(&self, t: OrderedFloat<f64>, image_spec: ImageSpec) -> ImageSpec {
+    fn apply(&self, t: f64, image_spec: ImageSpec) -> ImageSpec {
         let (origin_x, origin_y) = self.origin.borrow().at_time(t);
         let (position_x, position_y) = self.position.borrow().at_time(t);
         let scale = self.scale.borrow().at_time(t);
@@ -277,6 +273,109 @@ impl<const WIDTH: u32, const HEIGHT: u32> AnimationElement<WIDTH, HEIGHT>
     }
 }
 
+#[derive(Debug)]
+pub struct SubVideoElementParams {
+    origin: (f64, f64),
+    position: (f64, f64),
+    scale: f64,
+}
+
+impl SubVideoElementParams {
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        Self {
+            origin: (0.0, 0.0),
+            position: (0.25, 0.25),
+            scale: 50.0,
+        }
+    }
+
+    pub fn origin(mut self, origin: (f64, f64)) -> Self {
+        self.origin = origin;
+        self
+    }
+
+    pub fn position(mut self, position: (f64, f64)) -> Self {
+        self.position = position;
+        self
+    }
+
+    pub fn scale(mut self, scale: f64) -> Self {
+        self.scale = scale;
+        self
+    }
+}
+
+pub struct SubVideoElement<const WIDTH: u32, const HEIGHT: u32, V: Timeline<Option<ImageSpec>>> {
+    at_t: f64,
+    video: V,
+    origin: RefCell<InterpTimeline<(f64, f64)>>,
+    position: RefCell<InterpTimeline<(f64, f64)>>,
+    scale: RefCell<InterpTimeline<f64>>,
+}
+
+impl<const WIDTH: u32, const HEIGHT: u32, V: Timeline<Option<ImageSpec>>>
+    SubVideoElement<WIDTH, HEIGHT, V>
+{
+    pub fn new(at_t: f64, video: V, params: SubVideoElementParams) -> Self {
+        Self {
+            at_t,
+            video,
+            origin: RefCell::new(InterpTimeline::new(params.origin)),
+            position: RefCell::new(InterpTimeline::new(params.position)),
+            scale: RefCell::new(InterpTimeline::new(params.scale)),
+        }
+    }
+
+    pub fn set_origin(&self, t: f64, v: (f64, f64), interp: impl Interp<(f64, f64)> + 'static) {
+        self.origin.borrow_mut().set(t, v, interp);
+    }
+
+    pub fn set_position(&self, t: f64, v: (f64, f64), interp: impl Interp<(f64, f64)> + 'static) {
+        self.position.borrow_mut().set(t, v, interp);
+    }
+
+    pub fn set_scale(&self, t: f64, v: f64, interp: impl Interp<f64> + 'static) {
+        self.scale.borrow_mut().set(t, v, interp);
+    }
+}
+
+impl<const WIDTH: u32, const HEIGHT: u32, V: Timeline<Option<ImageSpec>>>
+    AnimationElement<WIDTH, HEIGHT> for SubVideoElement<WIDTH, HEIGHT, V>
+{
+    fn apply(&self, t: f64, image_spec: ImageSpec) -> ImageSpec {
+        if let Some(img) = self.video.at_time(t - self.at_t) {
+            let (origin_x, origin_y) = self.origin.borrow().at_time(t);
+            let (position_x, position_y) = self.position.borrow().at_time(t);
+            let scale = self.scale.borrow().at_time(t);
+            let px_mul = (((WIDTH as u64) * (HEIGHT as u64)) as f64).sqrt();
+
+            todo!();
+
+            ImageSpec::BlitStack {
+                width: WIDTH,
+                height: HEIGHT,
+                layers: vec![
+                    ((0.0, 0.0), image_spec),
+                    (
+                        (
+                            px_mul * (position_x) / SCREEN_UNITS,
+                            px_mul * (position_y) / SCREEN_UNITS,
+                        ),
+                        ImageSpec::Resize {
+                            image: Box::new(img),
+                            width: (px_mul * scale / SCREEN_UNITS) as u32,
+                            height: (px_mul * scale / SCREEN_UNITS) as u32,
+                        },
+                    ),
+                ],
+            }
+        } else {
+            image_spec
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct AnimationAudioClip {
     pub at_t: f64,
@@ -317,7 +416,7 @@ impl<const WIDTH: u32, const HEIGHT: u32> Animation<WIDTH, HEIGHT> {
 }
 
 impl<const WIDTH: u32, const HEIGHT: u32> Timeline<ImageSpec> for Animation<WIDTH, HEIGHT> {
-    fn at_time(&self, t: OrderedFloat<f64>) -> ImageSpec {
+    fn at_time(&self, t: f64) -> ImageSpec {
         let mut image_spec = self.default_image.clone();
         for element in &self.elements {
             image_spec = element.apply(t, image_spec);
@@ -327,14 +426,7 @@ impl<const WIDTH: u32, const HEIGHT: u32> Timeline<ImageSpec> for Animation<WIDT
 }
 
 impl<const WIDTH: u32, const HEIGHT: u32> Animation<WIDTH, HEIGHT> {
-    pub fn video(
-        &self,
-        from_t: impl Into<OrderedFloat<f64>>,
-        to_t: impl Into<OrderedFloat<f64>>,
-        fps: f64,
-    ) -> VideoSpec {
-        let from_t = from_t.into();
-        let to_t = to_t.into();
+    pub fn video(&self, from_t: f64, to_t: f64, fps: f64) -> VideoSpec {
         assert!(from_t <= to_t);
         let dt = 1.0 / fps;
         let mut images = vec![];
@@ -352,7 +444,7 @@ impl<const WIDTH: u32, const HEIGHT: u32> Animation<WIDTH, HEIGHT> {
                 .audio
                 .iter()
                 .map(|AnimationAudioClip { at_t, audio }| VideoAudioClip {
-                    at_t: *at_t - *from_t,
+                    at_t: at_t - from_t,
                     spec: audio.clone(),
                 })
                 .collect(),

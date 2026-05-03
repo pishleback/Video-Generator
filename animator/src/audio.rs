@@ -57,12 +57,12 @@ impl AudioSpec {
                 if from.is_none() && to.is_none() {
                     spec.make_audio(path);
                 } else {
-                    let duration = spec.get_duration();
+                    let duration = spec.duration();
 
                     let mut args = vec![];
                     args.append(&mut vec![
                         "-i".to_string(),
-                        spec.get_path().to_string_lossy().into(),
+                        spec.make_path().to_string_lossy().into(),
                     ]);
                     if let Some(from) = from {
                         if *from >= duration {
@@ -114,12 +114,12 @@ impl AudioSpec {
         }
     }
 
-    pub fn get_path(&self) -> PathBuf {
-        cache().get_file(&FileSpec::Audio(self.clone()))
+    pub fn make_path(&self) -> PathBuf {
+        cache().make_file(&FileSpec::Audio(self.clone()))
     }
 
-    pub fn get_duration(&self) -> f64 {
-        let path = self.get_path();
+    pub fn duration(&self) -> f64 {
+        let path = self.make_path();
 
         let output = std::process::Command::new("ffprobe")
             .arg("-i")

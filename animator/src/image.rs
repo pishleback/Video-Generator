@@ -2,8 +2,9 @@ use crate::{
     colour::ColourRgba,
     data::{FileSpec, cache},
     shape::ShapeImage,
+    video::VideoSpec,
 };
-use image::{ImageBuffer, Rgba};
+use image::{DynamicImage, ImageBuffer, Rgba, imageops::FilterType};
 use serde::{Deserialize, Serialize};
 use std::{
     io::Write,
@@ -17,10 +18,19 @@ pub enum ImageSpec {
         height: u32,
         colour: ColourRgba,
     },
+    Resize {
+        image: Box<ImageSpec>,
+        width: u32,
+        height: u32,
+    },
     BlitStack {
         width: u32,
         height: u32,
         layers: Vec<((f64, f64), ImageSpec)>,
+    },
+    VideoFrame {
+        video: VideoSpec,
+        frame: usize,
     },
     Latex(LatexImage),
     Shape(ShapeImage),
@@ -46,20 +56,35 @@ impl ImageSpec {
             } => {
                 let mut result = ImageBuffer::from_fn(*width, *height, |_x, _y| Rgba([0, 0, 0, 0]));
                 for ((x, y), image_spec) in images {
-                    let img = image_spec.get_image();
+                    let img = image_spec.image();
                     image::imageops::overlay(&mut result, &img, *x as i64, *y as i64);
                 }
                 result.save(path).unwrap()
             }
+            ImageSpec::VideoFrame { .. } | ImageSpec::Resize { .. } => {
+                self.image().save(path).unwrap()
+            }
         }
     }
 
-    pub fn get_path(&self) -> PathBuf {
-        cache().get_file(&FileSpec::Image(self.clone()))
+    pub fn make_path(&self) -> PathBuf {
+        cache().make_file(&FileSpec::Image(self.clone()))
     }
 
-    pub fn get_image(&self) -> image::DynamicImage {
-        image::open(self.get_path()).unwrap()
+    pub fn image(&self) -> image::DynamicImage {
+        match self {
+            ImageSpec::VideoFrame { video, frame } => {
+                DynamicImage::from(video.frame(*frame).unwrap())
+            }
+            ImageSpec::Resize {
+                image,
+                width,
+                height,
+            } => image
+                .image()
+                .resize_exact(*width, *height, FilterType::CatmullRom),
+            _ => image::open(self.make_path()).unwrap(),
+        }
     }
 }
 

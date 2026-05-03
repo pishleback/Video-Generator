@@ -59,73 +59,41 @@ impl ShapeSpec {
     pub fn make_shape(&self, path: &Path) {
         match self {
             ShapeSpec::FromImage(x) => x.make_shape(path),
+            _ => {
+                std::fs::write(path, serde_json::to_string_pretty(&self.shape()).unwrap()).unwrap()
+            }
+        }
+    }
+
+    pub fn shape(&self) -> ShapeData {
+        match self {
+            ShapeSpec::FromImage(_) => {
+                let shape_path = cache().make_file(&FileSpec::Shape(self.clone()));
+                serde_json::from_str(std::fs::read_to_string(shape_path).unwrap().as_str()).unwrap()
+            }
             ShapeSpec::Scale {
                 shape,
                 scale_factor,
-            } => std::fs::write(
-                path,
-                serde_json::to_string_pretty(&shape.get_shape().scale(*scale_factor)).unwrap(),
-            )
-            .unwrap(),
+            } => shape.shape().scale(*scale_factor),
             ShapeSpec::Translate {
                 shape,
                 x_offset,
                 y_offset,
-            } => std::fs::write(
-                path,
-                serde_json::to_string_pretty(&shape.get_shape().translate(*x_offset, *y_offset))
-                    .unwrap(),
-            )
-            .unwrap(),
-            ShapeSpec::Normalize { shape } => std::fs::write(
-                path,
-                serde_json::to_string_pretty(&shape.get_shape().normalize()).unwrap(),
-            )
-            .unwrap(),
+            } => shape.shape().translate(*x_offset, *y_offset),
+            ShapeSpec::Normalize { shape } => shape.shape().normalize(),
             ShapeSpec::PartialBoundary {
                 shape,
                 start_frac,
                 end_frac,
                 radius,
-            } => std::fs::write(
-                path,
-                serde_json::to_string_pretty(&shape.get_shape().partial_boundary(
-                    *radius,
-                    *start_frac,
-                    *end_frac,
-                ))
-                .unwrap(),
-            )
-            .unwrap(),
-            ShapeSpec::Buffer { shape, radius } => std::fs::write(
-                path,
-                serde_json::to_string_pretty(&shape.get_shape().buffer(*radius)).unwrap(),
-            )
-            .unwrap(),
-            ShapeSpec::Union { shape1, shape2 } => std::fs::write(
-                path,
-                serde_json::to_string_pretty(&shape1.get_shape().union(&shape2.get_shape()))
-                    .unwrap(),
-            )
-            .unwrap(),
-            ShapeSpec::Intersect { shape1, shape2 } => std::fs::write(
-                path,
-                serde_json::to_string_pretty(&shape1.get_shape().intersect(&shape2.get_shape()))
-                    .unwrap(),
-            )
-            .unwrap(),
-            Self::Subtract { target, tool } => std::fs::write(
-                path,
-                serde_json::to_string_pretty(&target.get_shape().subtract(&tool.get_shape()))
-                    .unwrap(),
-            )
-            .unwrap(),
+            } => shape
+                .shape()
+                .partial_boundary(*radius, *start_frac, *end_frac),
+            ShapeSpec::Buffer { shape, radius } => shape.shape().buffer(*radius),
+            ShapeSpec::Union { shape1, shape2 } => shape1.shape().union(&shape2.shape()),
+            ShapeSpec::Intersect { shape1, shape2 } => shape1.shape().intersect(&shape2.shape()),
+            ShapeSpec::Subtract { target, tool } => target.shape().subtract(&tool.shape()),
         }
-    }
-
-    pub fn get_shape(&self) -> ShapeData {
-        let shape_path = cache().get_file(&FileSpec::Shape(self.clone()));
-        serde_json::from_str(std::fs::read_to_string(shape_path).unwrap().as_str()).unwrap()
     }
 
     pub fn scale(&self, scale_factor: f64) -> Self {
@@ -284,7 +252,7 @@ impl FromImageShape {
                 .simplify_vw_preserve(32.0)
         }
 
-        let shape = ShapeData::new(image_to_multipolygon(self.image.get_image()));
+        let shape = ShapeData::new(image_to_multipolygon(self.image.image()));
 
         std::fs::write(shape_path, serde_json::to_string_pretty(&shape).unwrap()).unwrap();
     }
@@ -608,7 +576,7 @@ impl ShapeImage {
             *pixel = self.bg_colour.to_rgba();
         }
 
-        let shape = self.shape.get_shape();
+        let shape = self.shape.shape();
 
         let mpoly =
             shape

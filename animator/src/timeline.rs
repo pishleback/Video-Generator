@@ -1,8 +1,9 @@
-use crate::interpolation::{ImmediateInterp, Interp, Interpable};
 use ordered_float::OrderedFloat;
 
+use crate::interpolation::{ImmediateInterp, Interp, Interpable};
+
 pub trait Timeline<V> {
-    fn at_time(&self, t: OrderedFloat<f64>) -> V;
+    fn at_time(&self, t: f64) -> V;
 }
 
 #[derive(Debug)]
@@ -17,14 +18,14 @@ impl<V: Clone> ConstantTimeline<V> {
 }
 
 impl<V: Clone> Timeline<V> for ConstantTimeline<V> {
-    fn at_time(&self, _t: OrderedFloat<f64>) -> V {
+    fn at_time(&self, _t: f64) -> V {
         self.value.clone()
     }
 }
 
 #[derive(Debug)]
 struct InterpTimelineKeyframe<V> {
-    at_t: OrderedFloat<f64>,
+    at_t: f64,
     from: V,
     to: V,
     interp: Box<dyn Interp<V>>,
@@ -44,7 +45,7 @@ impl<V: Clone> InterpTimeline<V> {
         }
     }
 
-    pub fn set_raw(&mut self, t: OrderedFloat<f64>, to: V, interp: impl Interp<V> + 'static) {
+    pub fn set_raw(&mut self, t: f64, to: V, interp: impl Interp<V> + 'static) {
         let from = self.at_time(t);
         self.keyframes.push(InterpTimelineKeyframe {
             at_t: t,
@@ -52,24 +53,24 @@ impl<V: Clone> InterpTimeline<V> {
             to,
             interp: Box::new(interp),
         });
-        self.keyframes.sort_by_key(|k| k.at_t);
+        self.keyframes.sort_by_key(|k| OrderedFloat::from(k.at_t));
     }
 }
 
 impl<V: Clone> InterpTimeline<V> {
-    pub fn set_immediate(&mut self, t: OrderedFloat<f64>, to: V) {
+    pub fn set_immediate(&mut self, t: f64, to: V) {
         self.set_raw(t, to, ImmediateInterp {});
     }
 }
 
 impl<V: Interpable + Clone> InterpTimeline<V> {
-    pub fn set(&mut self, t: OrderedFloat<f64>, to: V, interp: impl Interp<V> + 'static) {
+    pub fn set(&mut self, t: f64, to: V, interp: impl Interp<V> + 'static) {
         self.set_raw(t, to, interp);
     }
 }
 
 impl<V: Clone> Timeline<V> for InterpTimeline<V> {
-    fn at_time(&self, t: OrderedFloat<f64>) -> V {
+    fn at_time(&self, t: f64) -> V {
         for keyframe in self.keyframes.iter().rev() {
             if keyframe.at_t <= t {
                 let dt = t - keyframe.at_t;

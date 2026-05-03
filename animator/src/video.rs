@@ -2,6 +2,7 @@ use crate::audio::AudioSpec;
 use crate::data::FileSpec;
 use crate::data::cache;
 use crate::image::ImageSpec;
+use crate::timeline::Timeline;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -22,11 +23,11 @@ impl VideoSpec {
         }
     }
 
-    pub fn get_path(&self) -> PathBuf {
-        cache().get_file(&FileSpec::Video(self.clone()))
+    pub fn make_path(&self) -> PathBuf {
+        cache().make_file(&FileSpec::Video(self.clone()))
     }
 
-    pub fn get_size(&self) -> (u32, u32) {
+    pub fn size(&self) -> (u32, u32) {
         let output = std::process::Command::new("ffprobe")
             .args([
                 "-v",
@@ -37,7 +38,7 @@ impl VideoSpec {
                 "stream=width,height",
                 "-of",
                 "json",
-                self.get_path().to_str().unwrap(),
+                self.make_path().to_str().unwrap(),
             ])
             .output()
             .unwrap();
@@ -55,7 +56,7 @@ impl VideoSpec {
         (width, height)
     }
 
-    pub fn get_fps(&self) -> f32 {
+    pub fn fps(&self) -> f64 {
         let output = std::process::Command::new("ffprobe")
             .args([
                 "-v",
@@ -66,7 +67,7 @@ impl VideoSpec {
                 "stream=avg_frame_rate",
                 "-of",
                 "json",
-                self.get_path().to_str().unwrap(),
+                self.make_path().to_str().unwrap(),
             ])
             .output()
             .unwrap();
@@ -84,64 +85,117 @@ impl VideoSpec {
             .ok_or("missing fps")
             .unwrap();
 
+        // the output is of the form "num/den"
         let parts: Vec<&str> = fps_str.split('/').collect();
         if parts.len() != 2 {
             panic!("invalid fps format");
         }
-
-        let num: f32 = parts[0].parse().unwrap();
-        let den: f32 = parts[1].parse().unwrap();
-
+        let num: f64 = parts[0].parse().unwrap();
+        let den: f64 = parts[1].parse().unwrap();
         num / den
     }
 
-    pub fn get_images(&self) -> Vec<image::ImageBuffer<image::Rgb<u8>, Vec<u8>>> {
-        let (width, height) = self.get_size();
+    pub fn num_frames(&self) -> usize {
+        let output = std::process::Command::new("ffprobe")
+            .args([
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-count_frames",
+                "-show_entries",
+                "stream=nb_read_frames",
+                "-of",
+                "json",
+                self.make_path().to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
+
+        if !output.status.success() {
+            panic!();
+        }
+
+        let v: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+
+        let stream = v["streams"].get(0).expect("no video stream");
+
+        let frames_str = stream["nb_read_frames"]
+            .as_str()
+            .expect("missing frame count");
+
+        frames_str.parse::<usize>().expect("invalid frame count")
+    }
+
+    pub fn frame(&self, frame: usize) -> Option<image::ImageBuffer<image::Rgb<u8>, Vec<u8>>> {
+        let (width, height) = self.size();
         let frame_size = (width as usize) * (height as usize) * 3;
 
-        let mut child = std::process::Command::new("ffmpeg")
+        let output = std::process::Command::new("ffmpeg")
             .args([
                 "-i",
-                self.get_path().to_str().unwrap(),
+                self.make_path().to_str().unwrap(),
+                "-vf",
+                &format!("select=eq(n\\,{})", frame),
+                "-vframes",
+                "1",
                 "-f",
                 "rawvideo",
                 "-pix_fmt",
                 "rgb24",
-                "-vsync",
-                "0", // no duplication/drop
                 "pipe:1",
             ])
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::null())
-            .spawn()
-            .unwrap();
+            .output()
+            .ok()?;
 
-        let stdout = child.stdout.take().ok_or("No stdout").unwrap();
-        let mut reader = std::io::BufReader::new(stdout);
+        if !output.status.success() {
+            return None;
+        }
 
-        let mut images = vec![];
-        loop {
-            let mut buffer = vec![0u8; frame_size];
+        if output.stdout.len() != frame_size {
+            return None;
+        }
 
-            match std::io::Read::read_exact(&mut reader, &mut buffer) {
-                Ok(_) => {
-                    let img: ::image::ImageBuffer<::image::Rgb<u8>, _> =
-                        ::image::ImageBuffer::from_raw(width, height, buffer)
-                            .ok_or("Invalid buffer size")
-                            .unwrap();
-                    images.push(img);
+        image::ImageBuffer::from_raw(width, height, output.stdout)
+    }
+
+    pub fn video(&self) -> impl Timeline<Option<ImageSpec>> + 'static {
+        struct VideoImageTimeline {
+            video: VideoSpec,
+            frame_count: usize,
+            fps: f64,
+        }
+
+        impl Timeline<Option<ImageSpec>> for VideoImageTimeline {
+            fn at_time(&self, t: f64) -> Option<ImageSpec> {
+                let i = (t * self.fps).floor() as i64;
+                if i < 0 {
+                    return None;
                 }
-                Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
-                    break; // no more frames
+                let i = i as usize;
+                if i >= self.frame_count {
+                    return None;
                 }
-                Err(e) => {
-                    panic!("{}", e);
-                }
+                Some(ImageSpec::VideoFrame {
+                    video: self.video.clone(),
+                    frame: i,
+                })
             }
         }
-        let ecode = child.wait().expect("failed to wait on child");
-        assert!(ecode.success());
-        images
+
+        VideoImageTimeline {
+            video: self.clone(),
+            frame_count: self.num_frames(),
+            fps: self.fps(),
+        }
+    }
+
+    pub fn audio(&self) -> AudioSpec {
+        AudioSpec::File {
+            path: self.make_path(),
+        }
     }
 }
 
@@ -171,7 +225,7 @@ impl VideoCompiledSpec {
         let frame_duration = 1.0 / self.fps;
 
         for image in &self.images {
-            let p = image.get_path();
+            let p = image.make_path();
             writeln!(
                 writer,
                 "file '{}'",
@@ -193,7 +247,7 @@ impl VideoCompiledSpec {
             .map(|VideoAudioClip { at_t, spec }| {
                 if *at_t >= 0.0 {
                     AudioClip {
-                        path: spec.get_path(),
+                        path: spec.make_path(),
                         start_ms: (at_t * 1000.0) as u64,
                     }
                 } else {
@@ -203,7 +257,7 @@ impl VideoCompiledSpec {
                         to: None,
                     };
                     AudioClip {
-                        path: cut_clip.get_path(),
+                        path: cut_clip.make_path(),
                         start_ms: 0,
                     }
                 }

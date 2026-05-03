@@ -1,5 +1,3 @@
-use ordered_float::OrderedFloat;
-
 use crate::colour::ColourRgba;
 use std::fmt::Debug;
 
@@ -41,15 +39,15 @@ impl Interpable for ColourRgba {
 pub trait Interp<V>: Debug {
     // dt <= 0 should return `from`
     // dt >0 should from `from` towards `to`
-    fn interp(&self, from: &V, to: &V, dt: OrderedFloat<f64>) -> V;
+    fn interp(&self, from: &V, to: &V, dt: f64) -> V;
 }
 
 #[derive(Debug)]
 pub struct ImmediateInterp {}
 
 impl<V: Clone> Interp<V> for ImmediateInterp {
-    fn interp(&self, from: &V, to: &V, dt: OrderedFloat<f64>) -> V {
-        if *dt < 0.0 { from.clone() } else { to.clone() }
+    fn interp(&self, from: &V, to: &V, dt: f64) -> V {
+        if dt < 0.0 { from.clone() } else { to.clone() }
     }
 }
 
@@ -67,8 +65,8 @@ impl Default for LinearInterp {
 }
 
 impl<V: Interpable + Clone> Interp<V> for LinearInterp {
-    fn interp(&self, from: &V, to: &V, dt: OrderedFloat<f64>) -> V {
-        V::interp(from, to, *dt / self.duration)
+    fn interp(&self, from: &V, to: &V, dt: f64) -> V {
+        V::interp(from, to, dt / self.duration)
     }
 }
 
@@ -96,8 +94,8 @@ impl Default for ExpInterp {
 }
 
 impl<V: Interpable + Clone> Interp<V> for ExpInterp {
-    fn interp(&self, from: &V, to: &V, dt: OrderedFloat<f64>) -> V {
-        V::interp(from, to, exp_smooth(*dt / self.duration))
+    fn interp(&self, from: &V, to: &V, dt: f64) -> V {
+        V::interp(from, to, exp_smooth(dt / self.duration))
     }
 }
 
@@ -115,8 +113,8 @@ impl Default for Exp2Interp {
 }
 
 impl<V: Interpable + Clone> Interp<V> for Exp2Interp {
-    fn interp(&self, from: &V, to: &V, dt: OrderedFloat<f64>) -> V {
-        V::interp(from, to, exp_smooth(exp_smooth(*dt / self.duration)))
+    fn interp(&self, from: &V, to: &V, dt: f64) -> V {
+        V::interp(from, to, exp_smooth(exp_smooth(dt / self.duration)))
     }
 }
 
@@ -134,7 +132,7 @@ impl Default for FastStartInterp {
 }
 
 impl<V: Interpable + Clone> Interp<V> for FastStartInterp {
-    fn interp(&self, from: &V, to: &V, dt: OrderedFloat<f64>) -> V {
+    fn interp(&self, from: &V, to: &V, dt: f64) -> V {
         fn f(x: f64) -> f64 {
             if x <= 0.0 {
                 0.0
@@ -144,7 +142,7 @@ impl<V: Interpable + Clone> Interp<V> for FastStartInterp {
                 1.0 - (1.0 - x) * (1.0 - x)
             }
         }
-        V::interp(from, to, f(*dt / self.duration))
+        V::interp(from, to, f(dt / self.duration))
     }
 }
 
@@ -162,7 +160,7 @@ impl Default for FastEndInterp {
 }
 
 impl<V: Interpable + Clone> Interp<V> for FastEndInterp {
-    fn interp(&self, from: &V, to: &V, dt: OrderedFloat<f64>) -> V {
+    fn interp(&self, from: &V, to: &V, dt: f64) -> V {
         fn f(x: f64) -> f64 {
             if x <= 0.0 {
                 0.0
@@ -172,6 +170,6 @@ impl<V: Interpable + Clone> Interp<V> for FastEndInterp {
                 x * x
             }
         }
-        V::interp(from, to, f(*dt / self.duration))
+        V::interp(from, to, f(dt / self.duration))
     }
 }

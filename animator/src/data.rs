@@ -80,7 +80,7 @@ impl DataCache {
         }
     }
 
-    pub fn get_file(&self, file_spec: &FileSpec) -> PathBuf {
+    pub fn make_file(&self, file_spec: &FileSpec) -> PathBuf {
         let mut cache = self.cache.lock().unwrap();
 
         // Check if the file exists in the cache already
@@ -93,6 +93,7 @@ impl DataCache {
                     drop(cache);
                     println!("Regenerating file: {:?}", file_spec);
                     file_spec.make_file(&file_path);
+                    println!("Remade {:?}", file_path);
                     assert!(file_path.exists());
                     file_path
                 };
@@ -122,6 +123,7 @@ impl DataCache {
 
         println!("Generating file: {:?}", file_spec);
         file_spec.make_file(&file_path);
+        println!("Made {:?}", file_path);
 
         assert!(file_path.exists());
 

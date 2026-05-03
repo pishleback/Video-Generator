@@ -8,13 +8,18 @@ pub mod shape;
 pub mod timeline;
 pub mod video;
 
-#[allow(unused)]
+use imageproc::drawing::Canvas;
+
 use crate::{
-    animation::{Animation, BoundaryMode, ShapeElement, ShapeElementParams},
+    animation::{
+        Animation, BoundaryMode, ShapeElement, ShapeElementParams, SubVideoElement,
+        SubVideoElementParams,
+    },
     colour::ColourRgba,
     image::{ImageSpec, LatexImage},
     interpolation::{Exp2Interp, ExpInterp, FastEndInterp, FastStartInterp, LinearInterp},
     shape::{FromImageShape, ShapeSpec},
+    timeline::Timeline,
 };
 use crate::{audio::AudioSpec, video::VideoSpec};
 use std::path::{Path, PathBuf};
@@ -26,13 +31,13 @@ fn main() {
     // const HEIGHT: u32 = 2160;
     // const FPS: f64 = 60.0;
 
-    const WIDTH: u32 = 1920;
-    const HEIGHT: u32 = 1080;
-    const FPS: f64 = 30.0;
+    // const WIDTH: u32 = 1920;
+    // const HEIGHT: u32 = 1080;
+    // const FPS: f64 = 30.0;
 
-    // const WIDTH: u32 = 384;
-    // const HEIGHT: u32 = 216;
-    // const FPS: f64 = 5.0;
+    const WIDTH: u32 = 384;
+    const HEIGHT: u32 = 216;
+    const FPS: f64 = 5.0;
 
     let mut anim = Animation::<WIDTH, HEIGHT>::new(ColourRgba {
         r: 0.0,
@@ -41,7 +46,7 @@ fn main() {
         a: 1.0,
     });
 
-    let elem1 = ShapeElement::new(
+    let elem1 = anim.add_visual(ShapeElement::new(
         ShapeSpec::FromImage(FromImageShape {
             image: ImageSpec::Latex(LatexImage {
                 scale: 8192,
@@ -66,8 +71,7 @@ fn main() {
         .boundary_mode(BoundaryMode::Inner)
         .boundary_frac((0.0, 0.0))
         .scale(40.0),
-    );
-    let elem1 = anim.add_visual(elem1);
+    ));
 
     elem1.set_boundary_frac(t, (2.0, 3.0), FastStartInterp { duration: 2.5 });
     elem1.set_fill_alpha(t + 1.5, 1.0, LinearInterp { duration: 1.5 });
@@ -78,18 +82,25 @@ fn main() {
         0.0,
         AudioSpec::File {
             path: "\
-/home/michael/Documents/GitHub/Animation-Generator/assets/soundscrate-dreaming-cello.mp3"
+    /home/michael/Documents/GitHub/Animation-Generator/assets/soundscrate-dreaming-cello.mp3"
                 .into(),
         },
     );
 
-    let path = anim.video(0.0, t + 1.0, FPS).get_path();
-    std::fs::copy(path.clone(), Path::new("out.mp4")).unwrap();
+    let rec = VideoSpec::File {
+        path: PathBuf::from(
+            "/home/michael/Documents/GitHub/Animation-Generator/assets/2026-05-02 21-55-09.mp4",
+        ),
+    };
 
-    let path = PathBuf::from(
-        "/home/michael/Documents/GitHub/Animation-Generator/assets/2026-05-02 21-55-09.mp4",
-    );
-    let images = VideoSpec::File { path: path.clone() }.get_images();
-    println!("{:?}", images.len());
-    println!("{:?}", VideoSpec::File { path: path.clone() }.get_fps())
+    let elem2 = anim.add_visual(SubVideoElement::new(
+        5.0,
+        rec.video(),
+        SubVideoElementParams::new(),
+    ));
+
+    anim.add_audio(5.0, rec.audio());
+
+    let path = anim.video(0.0, t + 1.0, FPS).make_path();
+    std::fs::copy(path.clone(), Path::new("out.mp4")).unwrap();
 }
