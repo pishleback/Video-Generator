@@ -1,15 +1,4 @@
-pub mod animation;
-pub mod audio;
-pub mod colour;
-pub mod coords;
-pub mod data;
-pub mod image;
-pub mod interpolation;
-pub mod shape;
-pub mod timeline;
-pub mod video;
-
-use crate::{
+use animator::{
     animation::{
         Animation, BoundaryMode, ShapeElement, ShapeElementBuilder, SizeConstraint,
         SubVideoElement, SubVideoElementBuilder, SubVideoSource,
@@ -21,7 +10,7 @@ use crate::{
     shape::{FromImageShape, ShapeSpec},
     timeline::Timeline,
 };
-use crate::{audio::AudioSpec, video::VideoSpec};
+use animator::{audio::AudioSpec, video::VideoSpec};
 use imageproc::drawing::Canvas;
 use std::path::{Path, PathBuf};
 
@@ -36,13 +25,9 @@ fn main() {
     // const HEIGHT: u32 = 1080;
     // const FPS: f64 = 30.0;
 
-    const WIDTH: u32 = 1080;
-    const HEIGHT: u32 = 1920;
-    const FPS: f64 = 30.0;
-
-    // const WIDTH: u32 = 384;
-    // const HEIGHT: u32 = 216;
-    // const FPS: f64 = 5.0;
+    const WIDTH: u32 = 1920;
+    const HEIGHT: u32 = 1080;
+    const FPS: f64 = 2.0;
 
     let mut anim = Animation::<WIDTH, HEIGHT>::new(ColourRgba {
         r: 0.0,
@@ -111,5 +96,5 @@ fn main() {
     elem2.set_height(8.0, 50.0, ExpInterp { duration: 3.0 });
 
     let path = anim.video(0.0, t + 1.0, FPS).make_path();
-    std::fs::copy(path.clone(), Path::new("out.mp4")).unwrap();
+    std::fs::copy(path.clone(), Path::new("outputs/out.mp4")).unwrap();
 }
