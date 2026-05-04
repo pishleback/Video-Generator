@@ -1,6 +1,7 @@
 pub mod animation;
 pub mod audio;
 pub mod colour;
+pub mod coords;
 pub mod data;
 pub mod image;
 pub mod interpolation;
@@ -8,20 +9,20 @@ pub mod shape;
 pub mod timeline;
 pub mod video;
 
-use imageproc::drawing::Canvas;
-
 use crate::{
     animation::{
         Animation, BoundaryMode, ShapeElement, ShapeElementParams, SubVideoElement,
         SubVideoElementParams,
     },
     colour::ColourRgba,
+    coords::Vec2,
     image::{ImageSpec, LatexImage},
     interpolation::{Exp2Interp, ExpInterp, FastEndInterp, FastStartInterp, LinearInterp},
     shape::{FromImageShape, ShapeSpec},
     timeline::Timeline,
 };
 use crate::{audio::AudioSpec, video::VideoSpec};
+use imageproc::drawing::Canvas;
 use std::path::{Path, PathBuf};
 
 fn main() {
@@ -82,21 +83,22 @@ fn main() {
         0.0,
         AudioSpec::File {
             path: "\
-    /home/michael/Documents/GitHub/Animation-Generator/assets/soundscrate-dreaming-cello.mp3"
+/home/michael/Documents/GitHub/Animation-Generator/assets/soundscrate-dreaming-cello.mp3"
                 .into(),
         },
     );
 
     let rec = VideoSpec::File {
         path: PathBuf::from(
-            "/home/michael/Documents/GitHub/Animation-Generator/assets/2026-05-02 21-55-09.mp4",
+            "\
+/home/michael/Documents/GitHub/Animation-Generator/assets/2026-05-02 21-55-09.mp4",
         ),
     };
 
     let elem2 = anim.add_visual(SubVideoElement::new(
         5.0,
         rec.video(),
-        SubVideoElementParams::new(),
+        SubVideoElementParams::new(Vec2::from_y_and_slope(50.0, rec.size())),
     ));
 
     anim.add_audio(5.0, rec.audio());

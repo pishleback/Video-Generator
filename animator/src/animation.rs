@@ -1,6 +1,7 @@
 use crate::{
     audio::AudioSpec,
     colour::{ColourRgb, ColourRgba},
+    coords::{Pos2, SCREEN_UNITS, Vec2},
     image::ImageSpec,
     interpolation::Interp,
     shape::ShapeSpec,
@@ -11,18 +12,14 @@ use core::f64;
 use std::fmt::Debug;
 use std::{cell::RefCell, rc::Rc};
 
-// Divide the width and height into this many units
-// Also used for thinkness of lines based on the average of the width and height
-const SCREEN_UNITS: f64 = 100.0;
-
 pub trait AnimationElement<const WIDTH: u32, const HEIGHT: u32> {
     fn apply(&self, t: f64, image_spec: ImageSpec) -> ImageSpec;
 }
 
 #[derive(Debug)]
-pub struct ShapeElementParams {
+pub struct ShapeElementParams<const WIDTH: u32, const HEIGHT: u32> {
     origin: (f64, f64),
-    position: (f64, f64),
+    position: Pos2<WIDTH, HEIGHT>,
     scale: f64,
     fill_colour: ColourRgba,
     boundary_thickness: f64,
@@ -31,11 +28,11 @@ pub struct ShapeElementParams {
     boundary_mode: BoundaryMode,
 }
 
-impl ShapeElementParams {
+impl<const WIDTH: u32, const HEIGHT: u32> ShapeElementParams<WIDTH, HEIGHT> {
     pub fn new(fill_colour: ColourRgba, boundary_colour: ColourRgba) -> Self {
         Self {
             origin: (0.0, 0.0),
-            position: (SCREEN_UNITS / 2.0, SCREEN_UNITS / 2.0),
+            position: Pos2::new(0.5 * SCREEN_UNITS, 0.5 * SCREEN_UNITS),
             scale: 50.0,
             fill_colour,
             boundary_thickness: 0.05,
@@ -50,7 +47,7 @@ impl ShapeElementParams {
         self
     }
 
-    pub fn position(mut self, position: (f64, f64)) -> Self {
+    pub fn position(mut self, position: Pos2<WIDTH, HEIGHT>) -> Self {
         self.position = position;
         self
     }
@@ -86,7 +83,7 @@ pub enum BoundaryMode {
 pub struct ShapeElement<const WIDTH: u32, const HEIGHT: u32> {
     shape: Box<dyn Timeline<ShapeSpec>>,
     origin: RefCell<InterpTimeline<(f64, f64)>>, // in shape coordinates where is the center
-    position: RefCell<InterpTimeline<(f64, f64)>>, // as parts per thousand of the view
+    position: RefCell<InterpTimeline<Pos2<WIDTH, HEIGHT>>>, // as parts per thousand of the view
     scale: RefCell<InterpTimeline<f64>>,
     fill_colour: RefCell<InterpTimeline<ColourRgba>>,
     boundary_thickness: RefCell<InterpTimeline<f64>>,
@@ -96,7 +93,7 @@ pub struct ShapeElement<const WIDTH: u32, const HEIGHT: u32> {
 }
 
 impl<const WIDTH: u32, const HEIGHT: u32> ShapeElement<WIDTH, HEIGHT> {
-    pub fn new(shape: ShapeSpec, params: ShapeElementParams) -> Self {
+    pub fn new(shape: ShapeSpec, params: ShapeElementParams<WIDTH, HEIGHT>) -> Self {
         Self {
             shape: Box::new(ConstantTimeline::new(shape)),
             origin: RefCell::new(InterpTimeline::new(params.origin)),
@@ -114,7 +111,12 @@ impl<const WIDTH: u32, const HEIGHT: u32> ShapeElement<WIDTH, HEIGHT> {
         self.origin.borrow_mut().set(t, v, interp);
     }
 
-    pub fn set_position(&self, t: f64, v: (f64, f64), interp: impl Interp<(f64, f64)> + 'static) {
+    pub fn set_position(
+        &self,
+        t: f64,
+        v: Pos2<WIDTH, HEIGHT>,
+        interp: impl Interp<Pos2<WIDTH, HEIGHT>> + 'static,
+    ) {
         self.position.borrow_mut().set(t, v, interp);
     }
 
@@ -201,7 +203,7 @@ impl<const WIDTH: u32, const HEIGHT: u32> AnimationElement<WIDTH, HEIGHT>
 {
     fn apply(&self, t: f64, image_spec: ImageSpec) -> ImageSpec {
         let (origin_x, origin_y) = self.origin.borrow().at_time(t);
-        let (position_x, position_y) = self.position.borrow().at_time(t);
+        let (position_x, position_y) = self.position.borrow().at_time(t).pixels();
         let scale = self.scale.borrow().at_time(t);
         let px_mul = (((WIDTH as u64) * (HEIGHT as u64)) as f64).sqrt();
 
@@ -210,10 +212,7 @@ impl<const WIDTH: u32, const HEIGHT: u32> AnimationElement<WIDTH, HEIGHT>
             .at_time(t)
             .translate(-origin_x, -origin_y)
             .scale(scale * px_mul / SCREEN_UNITS)
-            .translate(
-                WIDTH as f64 * (position_x / SCREEN_UNITS),
-                HEIGHT as f64 * (position_y / SCREEN_UNITS),
-            );
+            .translate(position_x, position_y);
 
         let boundary_thinkness =
             px_mul * self.boundary_thickness.borrow().at_time(t) / SCREEN_UNITS;
@@ -274,19 +273,18 @@ impl<const WIDTH: u32, const HEIGHT: u32> AnimationElement<WIDTH, HEIGHT>
 }
 
 #[derive(Debug)]
-pub struct SubVideoElementParams {
+pub struct SubVideoElementParams<const WIDTH: u32, const HEIGHT: u32> {
     origin: (f64, f64),
-    position: (f64, f64),
-    scale: f64,
+    position: Pos2<WIDTH, HEIGHT>,
+    size: Vec2<WIDTH, HEIGHT>,
 }
 
-impl SubVideoElementParams {
-    #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
+impl<const WIDTH: u32, const HEIGHT: u32> SubVideoElementParams<WIDTH, HEIGHT> {
+    pub fn new(size: Vec2<WIDTH, HEIGHT>) -> Self {
         Self {
-            origin: (0.0, 0.0),
-            position: (0.25, 0.25),
-            scale: 50.0,
+            origin: (0.5, 0.5),
+            position: Pos2::new(0.5 * SCREEN_UNITS, 0.5 * SCREEN_UNITS),
+            size,
         }
     }
 
@@ -295,13 +293,13 @@ impl SubVideoElementParams {
         self
     }
 
-    pub fn position(mut self, position: (f64, f64)) -> Self {
+    pub fn position(mut self, position: Pos2<WIDTH, HEIGHT>) -> Self {
         self.position = position;
         self
     }
 
-    pub fn scale(mut self, scale: f64) -> Self {
-        self.scale = scale;
+    pub fn size(mut self, size: Vec2<WIDTH, HEIGHT>) -> Self {
+        self.size = size;
         self
     }
 }
@@ -310,20 +308,20 @@ pub struct SubVideoElement<const WIDTH: u32, const HEIGHT: u32, V: Timeline<Opti
     at_t: f64,
     video: V,
     origin: RefCell<InterpTimeline<(f64, f64)>>,
-    position: RefCell<InterpTimeline<(f64, f64)>>,
-    scale: RefCell<InterpTimeline<f64>>,
+    position: RefCell<InterpTimeline<Pos2<WIDTH, HEIGHT>>>,
+    size: RefCell<InterpTimeline<Vec2<WIDTH, HEIGHT>>>,
 }
 
 impl<const WIDTH: u32, const HEIGHT: u32, V: Timeline<Option<ImageSpec>>>
     SubVideoElement<WIDTH, HEIGHT, V>
 {
-    pub fn new(at_t: f64, video: V, params: SubVideoElementParams) -> Self {
+    pub fn new(at_t: f64, video: V, params: SubVideoElementParams<WIDTH, HEIGHT>) -> Self {
         Self {
             at_t,
             video,
             origin: RefCell::new(InterpTimeline::new(params.origin)),
             position: RefCell::new(InterpTimeline::new(params.position)),
-            scale: RefCell::new(InterpTimeline::new(params.scale)),
+            size: RefCell::new(InterpTimeline::new(params.size)),
         }
     }
 
@@ -331,12 +329,22 @@ impl<const WIDTH: u32, const HEIGHT: u32, V: Timeline<Option<ImageSpec>>>
         self.origin.borrow_mut().set(t, v, interp);
     }
 
-    pub fn set_position(&self, t: f64, v: (f64, f64), interp: impl Interp<(f64, f64)> + 'static) {
+    pub fn set_position(
+        &self,
+        t: f64,
+        v: Pos2<WIDTH, HEIGHT>,
+        interp: impl Interp<Pos2<WIDTH, HEIGHT>> + 'static,
+    ) {
         self.position.borrow_mut().set(t, v, interp);
     }
 
-    pub fn set_scale(&self, t: f64, v: f64, interp: impl Interp<f64> + 'static) {
-        self.scale.borrow_mut().set(t, v, interp);
+    pub fn set_size(
+        &self,
+        t: f64,
+        v: Vec2<WIDTH, HEIGHT>,
+        interp: impl Interp<Vec2<WIDTH, HEIGHT>> + 'static,
+    ) {
+        self.size.borrow_mut().set(t, v, interp);
     }
 }
 
@@ -346,12 +354,8 @@ impl<const WIDTH: u32, const HEIGHT: u32, V: Timeline<Option<ImageSpec>>>
     fn apply(&self, t: f64, image_spec: ImageSpec) -> ImageSpec {
         if let Some(img) = self.video.at_time(t - self.at_t) {
             let (origin_x, origin_y) = self.origin.borrow().at_time(t);
-            let (position_x, position_y) = self.position.borrow().at_time(t);
-            let scale = self.scale.borrow().at_time(t);
-            let px_mul = (((WIDTH as u64) * (HEIGHT as u64)) as f64).sqrt();
-
-            todo!();
-
+            let (position_x, position_y) = self.position.borrow().at_time(t).pixels();
+            let (size_w, size_h) = self.size.borrow().at_time(t).pixels();
             ImageSpec::BlitStack {
                 width: WIDTH,
                 height: HEIGHT,
@@ -359,13 +363,13 @@ impl<const WIDTH: u32, const HEIGHT: u32, V: Timeline<Option<ImageSpec>>>
                     ((0.0, 0.0), image_spec),
                     (
                         (
-                            px_mul * (position_x) / SCREEN_UNITS,
-                            px_mul * (position_y) / SCREEN_UNITS,
+                            position_x - origin_x * size_w,
+                            position_y - origin_y * size_h,
                         ),
                         ImageSpec::Resize {
                             image: Box::new(img),
-                            width: (px_mul * scale / SCREEN_UNITS) as u32,
-                            height: (px_mul * scale / SCREEN_UNITS) as u32,
+                            width: size_w as u32,
+                            height: size_h as u32,
                         },
                     ),
                 ],
