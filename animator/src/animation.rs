@@ -17,7 +17,7 @@ pub trait AnimationElement<const WIDTH: u32, const HEIGHT: u32> {
 }
 
 #[derive(Debug)]
-pub struct ShapeElementParams<const WIDTH: u32, const HEIGHT: u32> {
+pub struct ShapeElementBuilder<const WIDTH: u32, const HEIGHT: u32> {
     origin: (f64, f64),
     position: Pos2<WIDTH, HEIGHT>,
     scale: f64,
@@ -28,7 +28,7 @@ pub struct ShapeElementParams<const WIDTH: u32, const HEIGHT: u32> {
     boundary_mode: BoundaryMode,
 }
 
-impl<const WIDTH: u32, const HEIGHT: u32> ShapeElementParams<WIDTH, HEIGHT> {
+impl<const WIDTH: u32, const HEIGHT: u32> ShapeElementBuilder<WIDTH, HEIGHT> {
     pub fn new(fill_colour: ColourRgba, boundary_colour: ColourRgba) -> Self {
         Self {
             origin: (0.0, 0.0),
@@ -93,7 +93,7 @@ pub struct ShapeElement<const WIDTH: u32, const HEIGHT: u32> {
 }
 
 impl<const WIDTH: u32, const HEIGHT: u32> ShapeElement<WIDTH, HEIGHT> {
-    pub fn new(shape: ShapeSpec, params: ShapeElementParams<WIDTH, HEIGHT>) -> Self {
+    pub fn new(shape: ShapeSpec, params: ShapeElementBuilder<WIDTH, HEIGHT>) -> Self {
         Self {
             shape: Box::new(ConstantTimeline::new(shape)),
             origin: RefCell::new(InterpTimeline::new(params.origin)),
@@ -147,7 +147,7 @@ impl<const WIDTH: u32, const HEIGHT: u32> ShapeElement<WIDTH, HEIGHT> {
             .set(t, ColourRgba { r, g, b, a: alpha }, interp);
     }
 
-    pub fn set_boundary_thinkness(&self, t: f64, v: f64, interp: impl Interp<f64> + 'static) {
+    pub fn set_boundary_thickness(&self, t: f64, v: f64, interp: impl Interp<f64> + 'static) {
         self.boundary_thickness.borrow_mut().set(t, v, interp);
     }
 
@@ -214,21 +214,21 @@ impl<const WIDTH: u32, const HEIGHT: u32> AnimationElement<WIDTH, HEIGHT>
             .scale(scale * px_mul / SCREEN_UNITS)
             .translate(position_x, position_y);
 
-        let boundary_thinkness =
+        let boundary_thickness =
             px_mul * self.boundary_thickness.borrow().at_time(t) / SCREEN_UNITS;
         let shape_boundary = match self.boundary_mode.borrow().at_time(t) {
             BoundaryMode::Inner => shape
                 .partial_boundary(
-                    2.0 * boundary_thinkness,
+                    2.0 * boundary_thickness,
                     self.boundary_frac.borrow().at_time(t),
                 )
                 .intersect(&shape),
             BoundaryMode::Middle => {
-                shape.partial_boundary(boundary_thinkness, self.boundary_frac.borrow().at_time(t))
+                shape.partial_boundary(boundary_thickness, self.boundary_frac.borrow().at_time(t))
             }
             BoundaryMode::Outer => shape
                 .partial_boundary(
-                    2.0 * boundary_thinkness,
+                    2.0 * boundary_thickness,
                     self.boundary_frac.borrow().at_time(t),
                 )
                 .subtract(&shape),
@@ -237,7 +237,7 @@ impl<const WIDTH: u32, const HEIGHT: u32> AnimationElement<WIDTH, HEIGHT>
         let fill_colour = self.fill_colour.borrow().at_time(t);
         let boundary_colour = self.boundary_colour.borrow().at_time(t);
 
-        if fill_colour.a == 0.0 && (boundary_colour.a == 0.0 || boundary_thinkness == 0.0) {
+        if fill_colour.a == 0.0 && (boundary_colour.a == 0.0 || boundary_thickness == 0.0) {
             return image_spec;
         }
 
@@ -253,7 +253,7 @@ impl<const WIDTH: u32, const HEIGHT: u32> AnimationElement<WIDTH, HEIGHT>
                 )
             }));
         }
-        if boundary_colour.a != 0.0 && boundary_thinkness != 0.0 {
+        if boundary_colour.a != 0.0 && boundary_thickness != 0.0 {
             layers.push(((0.0, 0.0), {
                 let ColourRgba { r, g, b, a } = self.boundary_colour.borrow().at_time(t);
                 shape_boundary.image(
@@ -272,18 +272,36 @@ impl<const WIDTH: u32, const HEIGHT: u32> AnimationElement<WIDTH, HEIGHT>
     }
 }
 
-#[derive(Debug)]
-pub struct SubVideoElementParams<const WIDTH: u32, const HEIGHT: u32> {
-    origin: (f64, f64),
-    position: Pos2<WIDTH, HEIGHT>,
-    size: Vec2<WIDTH, HEIGHT>,
+pub enum SizeConstraint {
+    // set width to this and scale height to preserve aspect ratio
+    Width(f64),
+    // set height to this and scale width to preserve aspect ratio
+    Height(f64),
+    // set width and height to these, not preserving aspect ratio
+    Size(f64, f64),
 }
 
-impl<const WIDTH: u32, const HEIGHT: u32> SubVideoElementParams<WIDTH, HEIGHT> {
-    pub fn new(size: Vec2<WIDTH, HEIGHT>) -> Self {
+pub enum SubVideoSource {
+    Video(VideoSpec),
+    ImageTimeline {
+        size_ratio: (f64, f64),
+        images: Box<dyn Timeline<Option<ImageSpec>>>,
+    },
+}
+
+pub struct SubVideoElementBuilder<const WIDTH: u32, const HEIGHT: u32> {
+    origin: (f64, f64),
+    position: Pos2<WIDTH, HEIGHT>,
+    source: SubVideoSource,
+    size: SizeConstraint,
+}
+
+impl<const WIDTH: u32, const HEIGHT: u32> SubVideoElementBuilder<WIDTH, HEIGHT> {
+    pub fn new(source: SubVideoSource, size: SizeConstraint) -> Self {
         Self {
             origin: (0.5, 0.5),
             position: Pos2::new(0.5 * SCREEN_UNITS, 0.5 * SCREEN_UNITS),
+            source,
             size,
         }
     }
@@ -298,30 +316,41 @@ impl<const WIDTH: u32, const HEIGHT: u32> SubVideoElementParams<WIDTH, HEIGHT> {
         self
     }
 
-    pub fn size(mut self, size: Vec2<WIDTH, HEIGHT>) -> Self {
+    pub fn size(mut self, size: SizeConstraint) -> Self {
         self.size = size;
         self
     }
 }
 
-pub struct SubVideoElement<const WIDTH: u32, const HEIGHT: u32, V: Timeline<Option<ImageSpec>>> {
+pub struct SubVideoElement<const WIDTH: u32, const HEIGHT: u32> {
     at_t: f64,
-    video: V,
+    images: Box<dyn Timeline<Option<ImageSpec>>>,
+    size_ratio: (f64, f64),
     origin: RefCell<InterpTimeline<(f64, f64)>>,
     position: RefCell<InterpTimeline<Pos2<WIDTH, HEIGHT>>>,
     size: RefCell<InterpTimeline<Vec2<WIDTH, HEIGHT>>>,
 }
 
-impl<const WIDTH: u32, const HEIGHT: u32, V: Timeline<Option<ImageSpec>>>
-    SubVideoElement<WIDTH, HEIGHT, V>
-{
-    pub fn new(at_t: f64, video: V, params: SubVideoElementParams<WIDTH, HEIGHT>) -> Self {
+impl<const WIDTH: u32, const HEIGHT: u32> SubVideoElement<WIDTH, HEIGHT> {
+    pub fn new(at_t: f64, builder: SubVideoElementBuilder<WIDTH, HEIGHT>) -> Self {
+        let (images, size_ratio): (Box<dyn Timeline<Option<ImageSpec>>>, _) = match builder.source {
+            SubVideoSource::Video(video_spec) => {
+                let (w, h) = video_spec.size();
+                (Box::new(video_spec.image_timeline()), (w as f64, h as f64))
+            }
+            SubVideoSource::ImageTimeline { size_ratio, images } => (images, size_ratio),
+        };
         Self {
             at_t,
-            video,
-            origin: RefCell::new(InterpTimeline::new(params.origin)),
-            position: RefCell::new(InterpTimeline::new(params.position)),
-            size: RefCell::new(InterpTimeline::new(params.size)),
+            images,
+            size_ratio,
+            origin: RefCell::new(InterpTimeline::new(builder.origin)),
+            position: RefCell::new(InterpTimeline::new(builder.position)),
+            size: RefCell::new(InterpTimeline::new(match builder.size {
+                SizeConstraint::Width(width) => Vec2::from_x_and_slope(width, size_ratio),
+                SizeConstraint::Height(height) => Vec2::from_y_and_slope(height, size_ratio),
+                SizeConstraint::Size(width, height) => Vec2::new(width, height),
+            })),
         }
     }
 
@@ -338,6 +367,28 @@ impl<const WIDTH: u32, const HEIGHT: u32, V: Timeline<Option<ImageSpec>>>
         self.position.borrow_mut().set(t, v, interp);
     }
 
+    pub fn set_width(
+        &self,
+        t: f64,
+        width: f64,
+        interp: impl Interp<Vec2<WIDTH, HEIGHT>> + 'static,
+    ) {
+        self.size
+            .borrow_mut()
+            .set(t, Vec2::from_x_and_slope(width, self.size_ratio), interp);
+    }
+
+    pub fn set_height(
+        &self,
+        t: f64,
+        height: f64,
+        interp: impl Interp<Vec2<WIDTH, HEIGHT>> + 'static,
+    ) {
+        self.size
+            .borrow_mut()
+            .set(t, Vec2::from_y_and_slope(height, self.size_ratio), interp);
+    }
+
     pub fn set_size(
         &self,
         t: f64,
@@ -348,11 +399,11 @@ impl<const WIDTH: u32, const HEIGHT: u32, V: Timeline<Option<ImageSpec>>>
     }
 }
 
-impl<const WIDTH: u32, const HEIGHT: u32, V: Timeline<Option<ImageSpec>>>
-    AnimationElement<WIDTH, HEIGHT> for SubVideoElement<WIDTH, HEIGHT, V>
+impl<const WIDTH: u32, const HEIGHT: u32> AnimationElement<WIDTH, HEIGHT>
+    for SubVideoElement<WIDTH, HEIGHT>
 {
     fn apply(&self, t: f64, image_spec: ImageSpec) -> ImageSpec {
-        if let Some(img) = self.video.at_time(t - self.at_t) {
+        if let Some(img) = self.images.at_time(t - self.at_t) {
             let (origin_x, origin_y) = self.origin.borrow().at_time(t);
             let (position_x, position_y) = self.position.borrow().at_time(t).pixels();
             let (size_w, size_h) = self.size.borrow().at_time(t).pixels();

@@ -161,30 +161,7 @@ impl VideoSpec {
         image::ImageBuffer::from_raw(width, height, output.stdout)
     }
 
-    pub fn video(&self) -> impl Timeline<Option<ImageSpec>> + 'static {
-        struct VideoImageTimeline {
-            video: VideoSpec,
-            frame_count: usize,
-            fps: f64,
-        }
-
-        impl Timeline<Option<ImageSpec>> for VideoImageTimeline {
-            fn at_time(&self, t: f64) -> Option<ImageSpec> {
-                let i = (t * self.fps).floor() as i64;
-                if i < 0 {
-                    return None;
-                }
-                let i = i as usize;
-                if i >= self.frame_count {
-                    return None;
-                }
-                Some(ImageSpec::VideoFrame {
-                    video: self.video.clone(),
-                    frame: i,
-                })
-            }
-        }
-
+    pub fn image_timeline(&self) -> VideoImageTimeline {
         VideoImageTimeline {
             video: self.clone(),
             frame_count: self.num_frames(),
@@ -196,6 +173,29 @@ impl VideoSpec {
         AudioSpec::File {
             path: self.make_path(),
         }
+    }
+}
+
+pub struct VideoImageTimeline {
+    video: VideoSpec,
+    frame_count: usize,
+    fps: f64,
+}
+
+impl Timeline<Option<ImageSpec>> for VideoImageTimeline {
+    fn at_time(&self, t: f64) -> Option<ImageSpec> {
+        let i = (t * self.fps).floor() as i64;
+        if i < 0 {
+            return None;
+        }
+        let i = i as usize;
+        if i >= self.frame_count {
+            return None;
+        }
+        Some(ImageSpec::VideoFrame {
+            video: self.video.clone(),
+            frame: i,
+        })
     }
 }
 

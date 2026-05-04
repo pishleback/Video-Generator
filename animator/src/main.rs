@@ -11,8 +11,8 @@ pub mod video;
 
 use crate::{
     animation::{
-        Animation, BoundaryMode, ShapeElement, ShapeElementParams, SubVideoElement,
-        SubVideoElementParams,
+        Animation, BoundaryMode, ShapeElement, ShapeElementBuilder, SizeConstraint,
+        SubVideoElement, SubVideoElementBuilder, SubVideoSource,
     },
     colour::ColourRgba,
     coords::Vec2,
@@ -36,9 +36,13 @@ fn main() {
     // const HEIGHT: u32 = 1080;
     // const FPS: f64 = 30.0;
 
-    const WIDTH: u32 = 384;
-    const HEIGHT: u32 = 216;
-    const FPS: f64 = 5.0;
+    const WIDTH: u32 = 1080;
+    const HEIGHT: u32 = 1920;
+    const FPS: f64 = 30.0;
+
+    // const WIDTH: u32 = 384;
+    // const HEIGHT: u32 = 216;
+    // const FPS: f64 = 5.0;
 
     let mut anim = Animation::<WIDTH, HEIGHT>::new(ColourRgba {
         r: 0.0,
@@ -55,7 +59,7 @@ fn main() {
             }),
         })
         .normalize(),
-        ShapeElementParams::new(
+        ShapeElementBuilder::new(
             ColourRgba {
                 r: 1.0,
                 g: 1.0,
@@ -97,11 +101,14 @@ fn main() {
 
     let elem2 = anim.add_visual(SubVideoElement::new(
         5.0,
-        rec.video(),
-        SubVideoElementParams::new(Vec2::from_y_and_slope(50.0, rec.size())),
+        SubVideoElementBuilder::new(
+            SubVideoSource::Video(rec.clone()),
+            SizeConstraint::Width(50.0),
+        ),
     ));
-
     anim.add_audio(5.0, rec.audio());
+
+    elem2.set_height(8.0, 50.0, ExpInterp { duration: 3.0 });
 
     let path = anim.video(0.0, t + 1.0, FPS).make_path();
     std::fs::copy(path.clone(), Path::new("out.mp4")).unwrap();
