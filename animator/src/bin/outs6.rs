@@ -46,6 +46,17 @@ impl<const WIDTH: u32, const HEIGHT: u32> CompleteGraph<WIDTH, HEIGHT> {
 
         let mut union = ShapeSpec::Empty;
 
+        let point_elems = (0..n)
+            .map(|i| {
+                let shape = ShapeSpec::Circle {
+                    center: points[i],
+                    radius: point_radius,
+                };
+                union = union.union(&shape);
+                anim.add_shape(shape)
+            })
+            .collect::<Vec<_>>();
+
         let line_elems = (0..n)
             .flat_map(|b| {
                 (0..b)
@@ -62,16 +73,12 @@ impl<const WIDTH: u32, const HEIGHT: u32> CompleteGraph<WIDTH, HEIGHT> {
             })
             .collect::<Vec<_>>();
 
-        let point_elems = (0..n)
-            .map(|i| {
-                let shape = ShapeSpec::Circle {
-                    center: points[i],
-                    radius: point_radius,
-                };
-                union = union.union(&shape);
-                anim.add_shape(shape)
-            })
-            .collect::<Vec<_>>();
+        for p in &point_elems {
+            p.set_draw_ordering(0.0, None, 1.0.into());
+        }
+        for l in &line_elems {
+            l.set_draw_ordering(0.0, None, 0.0.into());
+        }
 
         let union = anim.add_shape(union);
 
@@ -171,10 +178,6 @@ fn main() {
     const HEIGHT: u32 = 1080;
     const FPS: f64 = 30.0;
 
-    // const WIDTH: u32 = 1920;
-    // const HEIGHT: u32 = 1080;
-    // const FPS: f64 = 5.0;
-
     let change_duration = 1.0;
     let slide_duration = 3.0;
 
@@ -195,68 +198,48 @@ fn main() {
                 Rect::fullscreen().pad(Length::from_units(10.0)),
                 InterpType::Immediate,
             );
-            k6.union
-                .set_boundary_frac(t, None, (0.0, 0.0), InterpType::Immediate);
-            k6.union.set_boundary_rgb(
-                t,
-                None,
-                ColourRgb {
-                    r: 1.0,
-                    g: 1.0,
-                    b: 1.0,
-                },
-                InterpType::Immediate,
-            );
-            k6.union
-                .set_boundary_alpha(t, None, 1.0, InterpType::Immediate);
-
-            for n in 0..6 {
-                let p = k6.get_point(n);
-                p.set_draw_ordering(t, None, 1.0.into());
-                p.set_fill_rgb(
-                    t,
-                    None,
-                    ColourRgb {
-                        r: 1.0,
-                        g: 1.0,
-                        b: 1.0,
-                    },
-                    InterpType::Immediate,
-                );
-            }
-
-            for a in 0..6 {
-                for b in 0..a {
-                    k6.get_line(a, b)
-                        .set_fill_rgb(t, None, cyan, InterpType::Immediate);
-                }
-            }
 
             t += 1.0;
         }
 
+        k6.get_line(0, 1)
+            .set_fill_rgb(t, None, green, InterpType::Immediate);
+        k6.get_line(0, 2)
+            .set_fill_rgb(t, None, blue, InterpType::Immediate);
+        k6.get_line(0, 3)
+            .set_fill_rgb(t, None, red, InterpType::Immediate);
+        k6.get_line(0, 4)
+            .set_fill_rgb(t, None, red, InterpType::Immediate);
+        k6.get_line(0, 5)
+            .set_fill_rgb(t, None, red, InterpType::Immediate);
+
         {
+            k6.union
+                .set_boundary_alpha(t, None, 1.0, InterpType::Immediate);
+
+            k6.union.set_boundary_frac_1(
+                t,
+                Some(0.0),
+                1.0,
+                InterpType::FastStart {
+                    duration: change_duration,
+                },
+            );
+
+            k6.union.set_boundary_frac_2(
+                t,
+                Some(0.0),
+                1.0,
+                InterpType::FastEnd {
+                    duration: change_duration,
+                },
+            );
+
             k6.all_points_and_lines.set_fill_alpha(
-                t + 0.5,
-                None,
+                t + 0.5 * change_duration,
+                Some(0.0),
                 1.0,
                 InterpType::Exp {
-                    duration: change_duration,
-                },
-            );
-            k6.union.set_boundary_frac(
-                t,
-                None,
-                (0.0, 1.0),
-                InterpType::FastStart {
-                    duration: change_duration,
-                },
-            );
-            k6.union.set_boundary_frac(
-                t + 0.5 * change_duration,
-                None,
-                (1.0, 1.0),
-                InterpType::FastStart {
                     duration: change_duration,
                 },
             );
@@ -276,6 +259,7 @@ fn main() {
             let expr = anim.add_shape(ShapeSpec::latex(
                 r#"\frac{-b \pm \sqrt{b^2 - 4ac}}{2a}"#.to_string(),
             ));
+
             expr.set_within_rect(
                 t,
                 Rect::fullscreen()
@@ -285,8 +269,8 @@ fn main() {
             );
 
             expr.set_fill_alpha(
-                t + 0.1,
-                None,
+                t,
+                Some(0.0),
                 1.0,
                 InterpType::Exp {
                     duration: change_duration,
