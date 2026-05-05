@@ -38,7 +38,8 @@ pub struct ShapeElement<const WIDTH: u32, const HEIGHT: u32> {
     boundary_thickness: RefCell<InterpTimeline<Length<WIDTH, HEIGHT>>>,
     boundary_rgb: RefCell<InterpTimeline<ColourRgb>>,
     boundary_alpha: RefCell<InterpTimeline<f64>>,
-    boundary_frac: RefCell<InterpTimeline<(f64, f64)>>,
+    boundary_frac_1: RefCell<InterpTimeline<f64>>,
+    boundary_frac_2: RefCell<InterpTimeline<f64>>,
     boundary_mode: RefCell<InterpTimeline<BoundaryMode>>,
 }
 
@@ -117,7 +118,20 @@ impl<const WIDTH: u32, const HEIGHT: u32> ShapeElement<WIDTH, HEIGHT> {
         to: (f64, f64),
         interp: InterpType,
     ) {
-        self.boundary_frac.borrow_mut().set(t, from, to, interp);
+        self.boundary_frac_1
+            .borrow_mut()
+            .set(t, from.map(|from| from.0), to.0, interp);
+        self.boundary_frac_2
+            .borrow_mut()
+            .set(t, from.map(|from| from.1), to.1, interp);
+    }
+
+    pub fn set_boundary_frac_1(&self, t: f64, from: Option<f64>, to: f64, interp: InterpType) {
+        self.boundary_frac_1.borrow_mut().set(t, from, to, interp);
+    }
+
+    pub fn set_boundary_frac_2(&self, t: f64, from: Option<f64>, to: f64, interp: InterpType) {
+        self.boundary_frac_2.borrow_mut().set(t, from, to, interp);
     }
 
     pub fn set_boundary_mode(&self, t: f64, from: Option<BoundaryMode>, to: BoundaryMode) {
@@ -155,21 +169,17 @@ impl<const WIDTH: u32, const HEIGHT: u32> AnimationElement<WIDTH, HEIGHT>
             .translate(position_x, position_y);
 
         let boundary_thickness = self.boundary_thickness.borrow().at_time(t).pixels();
+        let frac_interval = (
+            self.boundary_frac_1.borrow().at_time(t),
+            self.boundary_frac_2.borrow().at_time(t),
+        );
         let shape_boundary = match self.boundary_mode.borrow().at_time(t) {
             BoundaryMode::Inner => shape
-                .partial_boundary(
-                    2.0 * boundary_thickness,
-                    self.boundary_frac.borrow().at_time(t),
-                )
+                .partial_boundary(2.0 * boundary_thickness, frac_interval)
                 .intersect(&shape),
-            BoundaryMode::Middle => {
-                shape.partial_boundary(boundary_thickness, self.boundary_frac.borrow().at_time(t))
-            }
+            BoundaryMode::Middle => shape.partial_boundary(boundary_thickness, frac_interval),
             BoundaryMode::Outer => shape
-                .partial_boundary(
-                    2.0 * boundary_thickness,
-                    self.boundary_frac.borrow().at_time(t),
-                )
+                .partial_boundary(2.0 * boundary_thickness, frac_interval)
                 .subtract(&shape),
         };
 
@@ -578,7 +588,8 @@ impl<const WIDTH: u32, const HEIGHT: u32> Animation<WIDTH, HEIGHT> {
                 b: 1.0,
             })),
             boundary_alpha: RefCell::new(InterpTimeline::new(0.0)),
-            boundary_frac: RefCell::new(InterpTimeline::new((0.0, 1.0))),
+            boundary_frac_1: RefCell::new(InterpTimeline::new(0.0)),
+            boundary_frac_2: RefCell::new(InterpTimeline::new(1.0)),
             boundary_mode: RefCell::new(InterpTimeline::new(BoundaryMode::Middle)),
         })
     }
