@@ -38,25 +38,26 @@ fn main() {
     let elem1 = anim.add_shape(ShapeSpec::latex(
         r#"\frac{-b \pm \sqrt{b^2 - 4ac}}{2a}"#.to_string(),
     ));
-    elem1.set_boundary_mode(t, BoundaryMode::Outer);
-    elem1.set_boundary_rgba(
+    elem1.set_boundary_mode(t, None, BoundaryMode::Outer);
+    elem1.set_boundary_rgb(
         t,
-        ColourRgba {
+        None,
+        ColourRgb {
             r: 1.0,
             g: 1.0,
             b: 1.0,
-            a: 1.0,
         },
         InterpType::Immediate,
     );
+    elem1.set_boundary_alpha(t, None, 1.0, InterpType::Immediate);
 
     t += 3.0;
 
-    elem1.set_boundary_frac(t, (0.0, 3.0), InterpType::Exp { duration: 2.5 });
-    elem1.set_fill_alpha(t + 1.5, 1.0, InterpType::Linear { duration: 1.5 });
+    elem1.set_boundary_frac(t, None, (0.0, 3.0), InterpType::Exp { duration: 2.5 });
+    elem1.set_fill_alpha(t + 1.5, None, 1.0, InterpType::Linear { duration: 1.5 });
     elem1.set_within_rect(
         t,
-        Rect::fullscreen().left_half(),
+        Rect::fullscreen().right_half(),
         InterpType::Exp { duration: 2.0 },
     );
 

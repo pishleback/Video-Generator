@@ -35,4 +35,13 @@ impl ColourRgb {
             (self.b * 255.0) as u8,
         ])
     }
+
+    pub fn to_rgba(&self, alpha: f64) -> ColourRgba {
+        ColourRgba {
+            r: self.r,
+            g: self.g,
+            b: self.b,
+            a: alpha,
+        }
+    }
 }

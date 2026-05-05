@@ -196,23 +196,26 @@ fn main() {
                 InterpType::Immediate,
             );
             k6.union
-                .set_boundary_frac(t, (0.0, 0.0), InterpType::Immediate);
-            k6.union.set_boundary_rgba(
+                .set_boundary_frac(t, None, (0.0, 0.0), InterpType::Immediate);
+            k6.union.set_boundary_rgb(
                 t,
-                ColourRgba {
+                None,
+                ColourRgb {
                     r: 1.0,
                     g: 1.0,
                     b: 1.0,
-                    a: 1.0,
                 },
                 InterpType::Immediate,
             );
+            k6.union
+                .set_boundary_alpha(t, None, 1.0, InterpType::Immediate);
 
             for n in 0..6 {
                 let p = k6.get_point(n);
-                p.set_draw_ordering(t, 1.0.into());
+                p.set_draw_ordering(t, None, 1.0.into());
                 p.set_fill_rgb(
                     t,
+                    None,
                     ColourRgb {
                         r: 1.0,
                         g: 1.0,
@@ -225,7 +228,7 @@ fn main() {
             for a in 0..6 {
                 for b in 0..a {
                     k6.get_line(a, b)
-                        .set_fill_rgb(t, cyan, InterpType::Immediate);
+                        .set_fill_rgb(t, None, cyan, InterpType::Immediate);
                 }
             }
 
@@ -235,6 +238,7 @@ fn main() {
         {
             k6.all_points_and_lines.set_fill_alpha(
                 t + 0.5,
+                None,
                 1.0,
                 InterpType::Exp {
                     duration: change_duration,
@@ -242,6 +246,7 @@ fn main() {
             );
             k6.union.set_boundary_frac(
                 t,
+                None,
                 (0.0, 1.0),
                 InterpType::FastStart {
                     duration: change_duration,
@@ -249,6 +254,7 @@ fn main() {
             );
             k6.union.set_boundary_frac(
                 t + 0.5 * change_duration,
+                None,
                 (1.0, 1.0),
                 InterpType::FastStart {
                     duration: change_duration,
@@ -280,6 +286,7 @@ fn main() {
 
             expr.set_fill_alpha(
                 t + 0.1,
+                None,
                 1.0,
                 InterpType::Exp {
                     duration: change_duration,

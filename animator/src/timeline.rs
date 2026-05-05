@@ -33,20 +33,20 @@ struct InterpTimelineKeyframe<V> {
 
 #[derive(Debug)]
 pub struct InterpTimeline<V> {
-    initial_value: V,
+    default_value: V,
     keyframes: Vec<InterpTimelineKeyframe<V>>,
 }
 
 impl<V: Clone + 'static> InterpTimeline<V> {
-    pub fn new(initial_value: V) -> Self {
+    pub fn new(default_value: V) -> Self {
         Self {
-            initial_value,
+            default_value,
             keyframes: vec![],
         }
     }
 
-    pub fn set_raw(&mut self, t: f64, to: V, interp: Box<dyn Interp<V>>) {
-        let from = self.at_time(t);
+    pub fn set_raw(&mut self, t: f64, from: Option<V>, to: V, interp: Box<dyn Interp<V>>) {
+        let from = from.unwrap_or_else(|| self.at_time(t));
         self.keyframes.push(InterpTimelineKeyframe {
             at_t: t,
             from,
@@ -58,14 +58,14 @@ impl<V: Clone + 'static> InterpTimeline<V> {
 }
 
 impl<V: Clone + 'static> InterpTimeline<V> {
-    pub fn set_immediate(&mut self, t: f64, to: V) {
-        self.set_raw(t, to, Box::new(ImmediateInterp {}));
+    pub fn set_immediate(&mut self, t: f64, from: Option<V>, to: V) {
+        self.set_raw(t, from, to, Box::new(ImmediateInterp {}));
     }
 }
 
 impl<V: Interpable + Clone + 'static> InterpTimeline<V> {
-    pub fn set(&mut self, t: f64, to: V, interp: InterpType) {
-        self.set_raw(t, to, interp.interp());
+    pub fn set(&mut self, t: f64, from: Option<V>, to: V, interp: InterpType) {
+        self.set_raw(t, from, to, interp.interp());
     }
 }
 
@@ -77,6 +77,10 @@ impl<V: Clone + 'static> Timeline<V> for InterpTimeline<V> {
                 return keyframe.interp.interp(&keyframe.from, &keyframe.to, dt);
             }
         }
-        self.initial_value.clone()
+        if let Some(first) = self.keyframes.first() {
+            first.from.clone()
+        } else {
+            self.default_value.clone()
+        }
     }
 }
