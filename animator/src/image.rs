@@ -49,21 +49,7 @@ impl ImageSpec {
                 let img = ImageBuffer::from_fn(*width, *height, |_x, _y| colour.to_rgba());
                 img.save(path).unwrap();
             }
-            ImageSpec::BlitStack {
-                width,
-                height,
-                layers: images,
-            } => {
-                let mut result = ImageBuffer::from_fn(*width, *height, |_x, _y| Rgba([0, 0, 0, 0]));
-                for ((x, y), image_spec) in images {
-                    let img = image_spec.image();
-                    image::imageops::overlay(&mut result, &img, *x as i64, *y as i64);
-                }
-                result.save(path).unwrap()
-            }
-            ImageSpec::VideoFrame { .. } | ImageSpec::Resize { .. } => {
-                self.image().save(path).unwrap()
-            }
+            _ => self.image().save(path).unwrap(),
         }
     }
 
@@ -83,6 +69,18 @@ impl ImageSpec {
             } => image
                 .image()
                 .resize_exact(*width, *height, FilterType::CatmullRom),
+            ImageSpec::BlitStack {
+                width,
+                height,
+                layers,
+            } => {
+                let mut result = ImageBuffer::from_fn(*width, *height, |_x, _y| Rgba([0, 0, 0, 0]));
+                for ((x, y), image_spec) in layers {
+                    let img = image_spec.image();
+                    image::imageops::overlay(&mut result, &img, *x as i64, *y as i64);
+                }
+                DynamicImage::from(result)
+            }
             _ => image::open(self.make_path()).unwrap(),
         }
     }

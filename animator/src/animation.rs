@@ -1,3 +1,5 @@
+use ordered_float::OrderedFloat;
+
 use crate::{
     audio::AudioSpec,
     colour::{ColourRgb, ColourRgba},
@@ -13,6 +15,7 @@ use std::fmt::Debug;
 use std::{cell::RefCell, rc::Rc};
 
 pub trait AnimationElement<const WIDTH: u32, const HEIGHT: u32>: 'static {
+    fn get_draw_ordering(&self, t: f64) -> (OrderedFloat<f64>, OrderedFloat<f64>); // for draw ordering
     fn set_within_rect(&self, t: f64, rect: Rect<WIDTH, HEIGHT>, interp: InterpType);
     fn apply(&self, t: f64, image_spec: ImageSpec) -> ImageSpec;
 }
@@ -25,6 +28,7 @@ pub enum BoundaryMode {
 }
 
 pub struct ShapeElement<const WIDTH: u32, const HEIGHT: u32> {
+    draw_ordering: RefCell<InterpTimeline<OrderedFloat<f64>>>,
     shape: Box<dyn Timeline<ShapeSpec>>,
     origin: RefCell<InterpTimeline<(f64, f64)>>, // in shape coordinates where is the center
     position: RefCell<InterpTimeline<Pos2<WIDTH, HEIGHT>>>, // as parts per thousand of the view
@@ -37,6 +41,12 @@ pub struct ShapeElement<const WIDTH: u32, const HEIGHT: u32> {
 }
 
 impl<const WIDTH: u32, const HEIGHT: u32> ShapeElement<WIDTH, HEIGHT> {
+    pub fn set_draw_ordering(&self, t: f64, draw_ordering: OrderedFloat<f64>) {
+        self.draw_ordering
+            .borrow_mut()
+            .set_immediate(t, draw_ordering);
+    }
+
     pub fn set_origin(&self, t: f64, v: (f64, f64), interp: InterpType) {
         self.origin.borrow_mut().set(t, v, interp);
     }
@@ -106,6 +116,15 @@ impl<const WIDTH: u32, const HEIGHT: u32> ShapeElement<WIDTH, HEIGHT> {
 impl<const WIDTH: u32, const HEIGHT: u32> AnimationElement<WIDTH, HEIGHT>
     for ShapeElement<WIDTH, HEIGHT>
 {
+    fn get_draw_ordering(&self, t: f64) -> (OrderedFloat<f64>, OrderedFloat<f64>) {
+        // base depth on brightness
+        let ColourRgba { r, g, b, .. } = self.fill_colour.borrow().at_time(t);
+        (
+            self.draw_ordering.borrow().at_time(t),
+            (0.299 * r + 0.587 * g + 0.114 * b).into(),
+        )
+    }
+
     fn apply(&self, t: f64, image_spec: ImageSpec) -> ImageSpec {
         let (origin_x, origin_y) = self.origin.borrow().at_time(t);
         let (position_x, position_y) = self.position.borrow().at_time(t).pixels();
@@ -279,12 +298,8 @@ impl<const WIDTH: u32, const HEIGHT: u32> ShapeElementCollection<WIDTH, HEIGHT> 
             elem.set_boundary_mode(t, v);
         }
     }
-}
 
-impl<const WIDTH: u32, const HEIGHT: u32> AnimationElement<WIDTH, HEIGHT>
-    for ShapeElementCollection<WIDTH, HEIGHT>
-{
-    fn set_within_rect(&self, t: f64, rect: Rect<WIDTH, HEIGHT>, interp: InterpType) {
+    pub fn set_within_rect(&self, t: f64, rect: Rect<WIDTH, HEIGHT>, interp: InterpType) {
         if let Some(bounding_rect) = self
             .shape_elements
             .iter()
@@ -316,10 +331,6 @@ impl<const WIDTH: u32, const HEIGHT: u32> AnimationElement<WIDTH, HEIGHT>
             );
         }
     }
-
-    fn apply(&self, t: f64, image_spec: ImageSpec) -> ImageSpec {
-        todo!()
-    }
 }
 
 pub enum SubVideoSource {
@@ -331,6 +342,7 @@ pub enum SubVideoSource {
 }
 
 pub struct SubVideoElement<const WIDTH: u32, const HEIGHT: u32> {
+    draw_ordering: RefCell<InterpTimeline<OrderedFloat<f64>>>,
     at_t: f64,
     images: Box<dyn Timeline<Option<ImageSpec>>>,
     size_ratio: (f64, f64),
@@ -340,6 +352,12 @@ pub struct SubVideoElement<const WIDTH: u32, const HEIGHT: u32> {
 }
 
 impl<const WIDTH: u32, const HEIGHT: u32> SubVideoElement<WIDTH, HEIGHT> {
+    pub fn set_draw_ordering(&self, t: f64, draw_ordering: OrderedFloat<f64>) {
+        self.draw_ordering
+            .borrow_mut()
+            .set_immediate(t, draw_ordering);
+    }
+
     pub fn set_origin(&self, t: f64, v: (f64, f64), interp: InterpType) {
         self.origin.borrow_mut().set(t, v, interp);
     }
@@ -368,6 +386,10 @@ impl<const WIDTH: u32, const HEIGHT: u32> SubVideoElement<WIDTH, HEIGHT> {
 impl<const WIDTH: u32, const HEIGHT: u32> AnimationElement<WIDTH, HEIGHT>
     for SubVideoElement<WIDTH, HEIGHT>
 {
+    fn get_draw_ordering(&self, t: f64) -> (OrderedFloat<f64>, OrderedFloat<f64>) {
+        (self.draw_ordering.borrow().at_time(t), 0.0.into())
+    }
+
     fn apply(&self, t: f64, image_spec: ImageSpec) -> ImageSpec {
         if let Some(img) = self.images.at_time(t - self.at_t) {
             let (origin_x, origin_y) = self.origin.borrow().at_time(t);
@@ -436,6 +458,7 @@ impl<const WIDTH: u32, const HEIGHT: u32> Animation<WIDTH, HEIGHT> {
 
     pub fn add_shape(&mut self, shape: ShapeSpec) -> Rc<ShapeElement<WIDTH, HEIGHT>> {
         self.add_visual(ShapeElement {
+            draw_ordering: RefCell::new(InterpTimeline::new(0.0.into())),
             shape: Box::new(ConstantTimeline::new(shape)),
             origin: RefCell::new(InterpTimeline::new((0.0, 0.0))),
             position: RefCell::new(InterpTimeline::new(Rect::fullscreen().center())),
@@ -474,6 +497,7 @@ impl<const WIDTH: u32, const HEIGHT: u32> Animation<WIDTH, HEIGHT> {
         };
         self.add_visual(SubVideoElement {
             at_t,
+            draw_ordering: RefCell::new(InterpTimeline::new(0.0.into())),
             images,
             size_ratio,
             origin: RefCell::new(InterpTimeline::new((0.5, 0.5))),
@@ -499,7 +523,9 @@ impl<const WIDTH: u32, const HEIGHT: u32> Animation<WIDTH, HEIGHT> {
 impl<const WIDTH: u32, const HEIGHT: u32> Timeline<ImageSpec> for Animation<WIDTH, HEIGHT> {
     fn at_time(&self, t: f64) -> ImageSpec {
         let mut image_spec = self.default_image.clone();
-        for element in &self.elements {
+        let mut elements = self.elements.clone();
+        elements.sort_by_cached_key(|elem| elem.get_draw_ordering(t));
+        for element in elements {
             image_spec = element.apply(t, image_spec);
         }
         image_spec

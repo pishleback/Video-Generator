@@ -19,6 +19,7 @@ const AA_RESCALE: u32 = 1; // This is a bit bodge and slow... It would be better
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ShapeSpec {
+    Empty,
     Circle {
         center: (f64, f64),
         radius: f64,
@@ -86,6 +87,9 @@ impl ShapeSpec {
 
     pub(crate) fn shape(&self) -> ShapeData {
         match self {
+            ShapeSpec::Empty => ShapeData {
+                multipolygon: MultiPolygon(vec![]),
+            },
             ShapeSpec::Circle {
                 center: (x, y),
                 radius,

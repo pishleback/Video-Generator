@@ -6,7 +6,7 @@ use crate::interpolation::Interpable;
 
 // Divide the width and height into this many units
 // Also used for thinkness of lines based on the average of the width and height
-pub const SCREEN_UNITS: f64 = 100.0;
+pub const SCREEN_UNITS: f64 = 1000.0;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Pos2<const WIDTH: u32, const HEIGHT: u32> {
@@ -178,6 +178,16 @@ impl<const WIDTH: u32, const HEIGHT: u32> Rect<WIDTH, HEIGHT> {
             max_x: WIDTH as f64,
             min_y: 0.0,
             max_y: HEIGHT as f64,
+        }
+    }
+
+    pub fn pad(&self, dist: Length<WIDTH, HEIGHT>) -> Self {
+        let mid = self.center();
+        Self {
+            min_x: mid.x.min(self.min_x + dist.v),
+            max_x: mid.x.max(self.max_x - dist.v),
+            min_y: mid.y.min(self.min_y + dist.v),
+            max_y: mid.y.max(self.max_y - dist.v),
         }
     }
 
