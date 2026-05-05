@@ -36,14 +36,37 @@ impl Interpable for ColourRgba {
     }
 }
 
-pub trait Interp<V>: Debug {
+pub trait Interp<V>: Debug + 'static {
     // dt <= 0 should return `from`
     // dt >0 should from `from` towards `to`
     fn interp(&self, from: &V, to: &V, dt: f64) -> V;
 }
 
-#[derive(Debug)]
-pub struct ImmediateInterp {}
+#[derive(Debug, Clone, Copy)]
+pub enum InterpType {
+    Immediate,
+    Linear { duration: f64 },
+    Exp { duration: f64 },
+    Exp2 { duration: f64 },
+    FastStart { duration: f64 },
+    FastEnd { duration: f64 },
+}
+
+impl InterpType {
+    pub(crate) fn interp<V: Interpable + Clone>(self) -> Box<dyn Interp<V>> {
+        match self {
+            InterpType::Immediate => Box::new(ImmediateInterp {}),
+            InterpType::Linear { duration } => Box::new(LinearInterp { duration }),
+            InterpType::Exp { duration } => Box::new(ExpInterp { duration }),
+            InterpType::Exp2 { duration } => Box::new(Exp2Interp { duration }),
+            InterpType::FastStart { duration } => Box::new(FastStartInterp { duration }),
+            InterpType::FastEnd { duration } => Box::new(FastEndInterp { duration }),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ImmediateInterp {}
 
 impl<V: Clone> Interp<V> for ImmediateInterp {
     fn interp(&self, from: &V, to: &V, dt: f64) -> V {
@@ -51,8 +74,8 @@ impl<V: Clone> Interp<V> for ImmediateInterp {
     }
 }
 
-#[derive(Debug)]
-pub struct LinearInterp {
+#[derive(Debug, Clone)]
+struct LinearInterp {
     pub duration: f64,
 }
 
@@ -80,8 +103,8 @@ fn exp_smooth(f: f64) -> f64 {
     }
 }
 
-#[derive(Debug)]
-pub struct ExpInterp {
+#[derive(Debug, Clone)]
+struct ExpInterp {
     pub duration: f64,
 }
 
@@ -99,8 +122,8 @@ impl<V: Interpable + Clone> Interp<V> for ExpInterp {
     }
 }
 
-#[derive(Debug)]
-pub struct Exp2Interp {
+#[derive(Debug, Clone)]
+struct Exp2Interp {
     pub duration: f64,
 }
 
@@ -118,8 +141,8 @@ impl<V: Interpable + Clone> Interp<V> for Exp2Interp {
     }
 }
 
-#[derive(Debug)]
-pub struct FastStartInterp {
+#[derive(Debug, Clone)]
+struct FastStartInterp {
     pub duration: f64,
 }
 
@@ -146,8 +169,8 @@ impl<V: Interpable + Clone> Interp<V> for FastStartInterp {
     }
 }
 
-#[derive(Debug)]
-pub struct FastEndInterp {
+#[derive(Debug, Clone)]
+struct FastEndInterp {
     pub duration: f64,
 }
 

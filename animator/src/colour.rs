@@ -1,7 +1,7 @@
 use image::{Rgb, Rgba};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct ColourRgba {
     pub r: f64,
     pub g: f64,
@@ -20,7 +20,7 @@ impl ColourRgba {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct ColourRgb {
     pub r: f64,
     pub g: f64,

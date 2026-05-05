@@ -1,10 +1,11 @@
 use crate::data::{FileSpec, cache};
+use crate::image::LatexImage;
 use crate::{colour::ColourRgba, image::ImageSpec};
 use geo::algorithm::contains::Contains;
 use geo::{
     AffineOps, AffineTransform, Area, BooleanOps, BoundingRect, Buffer, Coord, Distance, Euclidean,
-    LineString, MakeValid, MultiLineString, MultiPolygon, Polygon, Scale, SimplifyVwPreserve,
-    Translate, Validation,
+    Line, LineString, MakeValid, MultiLineString, MultiPolygon, Point, Polygon, Scale,
+    SimplifyVwPreserve, Translate, Validation,
 };
 use image::imageops::FilterType;
 use image::{DynamicImage, RgbaImage};
@@ -18,6 +19,15 @@ const AA_RESCALE: u32 = 1; // This is a bit bodge and slow... It would be better
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ShapeSpec {
+    Circle {
+        center: (f64, f64),
+        radius: f64,
+    },
+    Line {
+        point1: (f64, f64),
+        point2: (f64, f64),
+        radius: f64,
+    },
     Scale {
         shape: Box<ShapeSpec>,
         scale_factor: f64,
@@ -56,6 +66,15 @@ pub enum ShapeSpec {
 }
 
 impl ShapeSpec {
+    pub fn latex(expr: String) -> Self {
+        ShapeSpec::FromImage(FromImageShape {
+            image: ImageSpec::Latex(LatexImage { scale: 8192, expr }),
+        })
+        .normalize()
+    }
+}
+
+impl ShapeSpec {
     pub fn make_shape(&self, path: &Path) {
         match self {
             ShapeSpec::FromImage(x) => x.make_shape(path),
@@ -65,12 +84,21 @@ impl ShapeSpec {
         }
     }
 
-    pub fn shape(&self) -> ShapeData {
+    pub(crate) fn shape(&self) -> ShapeData {
         match self {
-            ShapeSpec::FromImage(_) => {
-                let shape_path = cache().make_file(&FileSpec::Shape(self.clone()));
-                serde_json::from_str(std::fs::read_to_string(shape_path).unwrap().as_str()).unwrap()
-            }
+            ShapeSpec::Circle {
+                center: (x, y),
+                radius,
+            } => ShapeData {
+                multipolygon: Point::new(*x, *y).buffer(*radius),
+            },
+            ShapeSpec::Line {
+                point1: (x1, y1),
+                point2: (x2, y2),
+                radius,
+            } => ShapeData {
+                multipolygon: Line::new(Point::new(*x1, *y1), Point::new(*x2, *y2)).buffer(*radius),
+            },
             ShapeSpec::Scale {
                 shape,
                 scale_factor,
@@ -93,6 +121,10 @@ impl ShapeSpec {
             ShapeSpec::Union { shape1, shape2 } => shape1.shape().union(&shape2.shape()),
             ShapeSpec::Intersect { shape1, shape2 } => shape1.shape().intersect(&shape2.shape()),
             ShapeSpec::Subtract { target, tool } => target.shape().subtract(&tool.shape()),
+            ShapeSpec::FromImage(_) => {
+                let shape_path = cache().make_file(&FileSpec::Shape(self.clone()));
+                serde_json::from_str(std::fs::read_to_string(shape_path).unwrap().as_str()).unwrap()
+            }
         }
     }
 
@@ -272,6 +304,10 @@ impl ShapeData {
         assert!(es.is_empty());
 
         Self { multipolygon }
+    }
+
+    pub fn bounding_rect(&self) -> Option<geo::Rect> {
+        self.multipolygon.bounding_rect()
     }
 
     pub fn scale(self, scale_factor: f64) -> Self {

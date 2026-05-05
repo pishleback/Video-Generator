@@ -1,9 +1,9 @@
 use crate::{
     audio::AudioSpec,
     colour::{ColourRgb, ColourRgba},
-    coords::{Pos2, SCREEN_UNITS, Vec2},
+    coords::{Length, Pos2, Rect, SCREEN_UNITS, Vec2},
     image::ImageSpec,
-    interpolation::Interp,
+    interpolation::InterpType,
     shape::ShapeSpec,
     timeline::{ConstantTimeline, InterpTimeline, Timeline},
     video::{VideoAudioClip, VideoCompiledSpec, VideoSpec},
@@ -12,65 +12,9 @@ use core::f64;
 use std::fmt::Debug;
 use std::{cell::RefCell, rc::Rc};
 
-pub trait AnimationElement<const WIDTH: u32, const HEIGHT: u32> {
+pub trait AnimationElement<const WIDTH: u32, const HEIGHT: u32>: 'static {
+    fn set_within_rect(&self, t: f64, rect: Rect<WIDTH, HEIGHT>, interp: InterpType);
     fn apply(&self, t: f64, image_spec: ImageSpec) -> ImageSpec;
-}
-
-#[derive(Debug)]
-pub struct ShapeElementBuilder<const WIDTH: u32, const HEIGHT: u32> {
-    origin: (f64, f64),
-    position: Pos2<WIDTH, HEIGHT>,
-    scale: f64,
-    fill_colour: ColourRgba,
-    boundary_thickness: f64,
-    boundary_colour: ColourRgba,
-    boundary_frac: (f64, f64),
-    boundary_mode: BoundaryMode,
-}
-
-impl<const WIDTH: u32, const HEIGHT: u32> ShapeElementBuilder<WIDTH, HEIGHT> {
-    pub fn new(fill_colour: ColourRgba, boundary_colour: ColourRgba) -> Self {
-        Self {
-            origin: (0.0, 0.0),
-            position: Pos2::new(0.5 * SCREEN_UNITS, 0.5 * SCREEN_UNITS),
-            scale: 50.0,
-            fill_colour,
-            boundary_thickness: 0.05,
-            boundary_colour,
-            boundary_frac: (0.0, 1.0),
-            boundary_mode: BoundaryMode::Middle,
-        }
-    }
-
-    pub fn origin(mut self, origin: (f64, f64)) -> Self {
-        self.origin = origin;
-        self
-    }
-
-    pub fn position(mut self, position: Pos2<WIDTH, HEIGHT>) -> Self {
-        self.position = position;
-        self
-    }
-
-    pub fn scale(mut self, scale: f64) -> Self {
-        self.scale = scale;
-        self
-    }
-
-    pub fn boundary_thickness(mut self, thickness: f64) -> Self {
-        self.boundary_thickness = thickness;
-        self
-    }
-
-    pub fn boundary_frac(mut self, boundary_frac: (f64, f64)) -> Self {
-        self.boundary_frac = boundary_frac;
-        self
-    }
-
-    pub fn boundary_mode(mut self, boundary_mode: BoundaryMode) -> Self {
-        self.boundary_mode = boundary_mode;
-        self
-    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -84,117 +28,78 @@ pub struct ShapeElement<const WIDTH: u32, const HEIGHT: u32> {
     shape: Box<dyn Timeline<ShapeSpec>>,
     origin: RefCell<InterpTimeline<(f64, f64)>>, // in shape coordinates where is the center
     position: RefCell<InterpTimeline<Pos2<WIDTH, HEIGHT>>>, // as parts per thousand of the view
-    scale: RefCell<InterpTimeline<f64>>,
+    scale: RefCell<InterpTimeline<Length<WIDTH, HEIGHT>>>,
     fill_colour: RefCell<InterpTimeline<ColourRgba>>,
-    boundary_thickness: RefCell<InterpTimeline<f64>>,
+    boundary_thickness: RefCell<InterpTimeline<Length<WIDTH, HEIGHT>>>,
     boundary_colour: RefCell<InterpTimeline<ColourRgba>>,
     boundary_frac: RefCell<InterpTimeline<(f64, f64)>>,
     boundary_mode: RefCell<InterpTimeline<BoundaryMode>>,
 }
 
 impl<const WIDTH: u32, const HEIGHT: u32> ShapeElement<WIDTH, HEIGHT> {
-    pub fn new(shape: ShapeSpec, params: ShapeElementBuilder<WIDTH, HEIGHT>) -> Self {
-        Self {
-            shape: Box::new(ConstantTimeline::new(shape)),
-            origin: RefCell::new(InterpTimeline::new(params.origin)),
-            position: RefCell::new(InterpTimeline::new(params.position)),
-            scale: RefCell::new(InterpTimeline::new(params.scale)),
-            fill_colour: RefCell::new(InterpTimeline::new(params.fill_colour)),
-            boundary_thickness: RefCell::new(InterpTimeline::new(params.boundary_thickness)),
-            boundary_colour: RefCell::new(InterpTimeline::new(params.boundary_colour)),
-            boundary_frac: RefCell::new(InterpTimeline::new(params.boundary_frac)),
-            boundary_mode: RefCell::new(InterpTimeline::new(params.boundary_mode)),
-        }
-    }
-
-    pub fn set_origin(&self, t: f64, v: (f64, f64), interp: impl Interp<(f64, f64)> + 'static) {
+    pub fn set_origin(&self, t: f64, v: (f64, f64), interp: InterpType) {
         self.origin.borrow_mut().set(t, v, interp);
     }
 
-    pub fn set_position(
-        &self,
-        t: f64,
-        v: Pos2<WIDTH, HEIGHT>,
-        interp: impl Interp<Pos2<WIDTH, HEIGHT>> + 'static,
-    ) {
+    pub fn set_position(&self, t: f64, v: Pos2<WIDTH, HEIGHT>, interp: InterpType) {
         self.position.borrow_mut().set(t, v, interp);
     }
 
-    pub fn set_scale(&self, t: f64, v: f64, interp: impl Interp<f64> + 'static) {
+    pub fn set_scale(&self, t: f64, v: Length<WIDTH, HEIGHT>, interp: InterpType) {
         self.scale.borrow_mut().set(t, v, interp);
     }
 
-    pub fn set_fill_rgba(&self, t: f64, v: ColourRgba, interp: impl Interp<ColourRgba> + 'static) {
+    pub fn set_fill_rgba(&self, t: f64, v: ColourRgba, interp: InterpType) {
         self.fill_colour.borrow_mut().set(t, v, interp);
     }
 
-    pub fn set_fill_rgb(
-        &self,
-        t: f64,
-        ColourRgb { r, g, b }: ColourRgb,
-        interp: impl Interp<ColourRgba> + 'static,
-    ) {
+    pub fn set_fill_rgb(&self, t: f64, ColourRgb { r, g, b }: ColourRgb, interp: InterpType) {
         let a = self.fill_colour.borrow().at_time(t).a;
         self.fill_colour
             .borrow_mut()
             .set(t, ColourRgba { r, g, b, a }, interp);
     }
 
-    pub fn set_fill_alpha(&self, t: f64, alpha: f64, interp: impl Interp<ColourRgba> + 'static) {
+    pub fn set_fill_alpha(&self, t: f64, alpha: f64, interp: InterpType) {
         let ColourRgba { r, g, b, .. } = self.fill_colour.borrow().at_time(t);
         self.fill_colour
             .borrow_mut()
             .set(t, ColourRgba { r, g, b, a: alpha }, interp);
     }
 
-    pub fn set_boundary_thickness(&self, t: f64, v: f64, interp: impl Interp<f64> + 'static) {
+    pub fn set_boundary_thickness(&self, t: f64, v: Length<WIDTH, HEIGHT>, interp: InterpType) {
         self.boundary_thickness.borrow_mut().set(t, v, interp);
     }
 
-    pub fn set_boundary_rgba(
-        &self,
-        t: f64,
-        v: ColourRgba,
-        interp: impl Interp<ColourRgba> + 'static,
-    ) {
+    pub fn set_boundary_rgba(&self, t: f64, v: ColourRgba, interp: InterpType) {
         self.boundary_colour.borrow_mut().set(t, v, interp);
     }
 
-    pub fn set_boundary_rgb(
-        &self,
-        t: f64,
-        ColourRgb { r, g, b }: ColourRgb,
-        interp: impl Interp<ColourRgba> + 'static,
-    ) {
+    pub fn set_boundary_rgb(&self, t: f64, ColourRgb { r, g, b }: ColourRgb, interp: InterpType) {
         let a = self.boundary_colour.borrow().at_time(t).a;
         self.boundary_colour
             .borrow_mut()
             .set(t, ColourRgba { r, g, b, a }, interp);
     }
 
-    pub fn set_boundary_alpha(
-        &self,
-        t: f64,
-        alpha: f64,
-        interp: impl Interp<ColourRgba> + 'static,
-    ) {
+    pub fn set_boundary_alpha(&self, t: f64, alpha: f64, interp: InterpType) {
         let ColourRgba { r, g, b, .. } = self.boundary_colour.borrow().at_time(t);
         self.boundary_colour
             .borrow_mut()
             .set(t, ColourRgba { r, g, b, a: alpha }, interp);
     }
 
-    pub fn set_boundary_frac(
-        &self,
-        t: f64,
-        v: (f64, f64),
-        interp: impl Interp<(f64, f64)> + 'static,
-    ) {
+    pub fn set_boundary_frac(&self, t: f64, v: (f64, f64), interp: InterpType) {
         self.boundary_frac.borrow_mut().set(t, v, interp);
     }
 
     pub fn set_boundary_mode(&self, t: f64, v: BoundaryMode) {
         self.boundary_mode.borrow_mut().set_immediate(t, v);
+    }
+
+    fn bounding_rect(&self, t: f64) -> Option<geo::Rect> {
+        let shape = self.shape.at_time(t).shape();
+        shape.bounding_rect()
     }
 }
 
@@ -205,17 +110,15 @@ impl<const WIDTH: u32, const HEIGHT: u32> AnimationElement<WIDTH, HEIGHT>
         let (origin_x, origin_y) = self.origin.borrow().at_time(t);
         let (position_x, position_y) = self.position.borrow().at_time(t).pixels();
         let scale = self.scale.borrow().at_time(t);
-        let px_mul = (((WIDTH as u64) * (HEIGHT as u64)) as f64).sqrt();
 
         let shape = self
             .shape
             .at_time(t)
             .translate(-origin_x, -origin_y)
-            .scale(scale * px_mul / SCREEN_UNITS)
+            .scale(scale.pixels())
             .translate(position_x, position_y);
 
-        let boundary_thickness =
-            px_mul * self.boundary_thickness.borrow().at_time(t) / SCREEN_UNITS;
+        let boundary_thickness = self.boundary_thickness.borrow().at_time(t).pixels();
         let shape_boundary = match self.boundary_mode.borrow().at_time(t) {
             BoundaryMode::Inner => shape
                 .partial_boundary(
@@ -270,15 +173,153 @@ impl<const WIDTH: u32, const HEIGHT: u32> AnimationElement<WIDTH, HEIGHT>
             layers,
         }
     }
+
+    fn set_within_rect(&self, t: f64, rect: Rect<WIDTH, HEIGHT>, interp: InterpType) {
+        let shape = self.shape.at_time(t).shape();
+        if let Some(bounding_rect) = shape.bounding_rect() {
+            let (br_min_x, br_min_y) = bounding_rect.min().x_y();
+            let (br_w, br_h) = (bounding_rect.width(), bounding_rect.height());
+            let (r_w, r_h) = rect.size().pixels();
+            self.set_origin(t, (br_min_x + 0.5 * br_w, br_min_y + 0.5 * br_h), interp);
+            self.set_position(t, rect.center(), interp);
+            self.set_scale(
+                t,
+                if br_w * r_h < br_h * r_w {
+                    rect.height() / br_h
+                } else {
+                    rect.width() / br_w
+                },
+                interp,
+            );
+        }
+    }
 }
 
-pub enum SizeConstraint {
-    // set width to this and scale height to preserve aspect ratio
-    Width(f64),
-    // set height to this and scale width to preserve aspect ratio
-    Height(f64),
-    // set width and height to these, not preserving aspect ratio
-    Size(f64, f64),
+pub struct ShapeElementCollection<const WIDTH: u32, const HEIGHT: u32> {
+    shape_elements: Vec<Rc<ShapeElement<WIDTH, HEIGHT>>>,
+}
+
+pub fn shape_group<const WIDTH: u32, const HEIGHT: u32>(
+    shape_elements: impl IntoIterator<Item = Rc<ShapeElement<WIDTH, HEIGHT>>>,
+) -> ShapeElementCollection<WIDTH, HEIGHT> {
+    ShapeElementCollection {
+        shape_elements: shape_elements.into_iter().collect(),
+    }
+}
+
+impl<const WIDTH: u32, const HEIGHT: u32> ShapeElementCollection<WIDTH, HEIGHT> {
+    pub fn set_origin(&self, t: f64, v: (f64, f64), interp: InterpType) {
+        for elem in &self.shape_elements {
+            elem.set_origin(t, v, interp);
+        }
+    }
+
+    pub fn set_position(&self, t: f64, v: Pos2<WIDTH, HEIGHT>, interp: InterpType) {
+        for elem in &self.shape_elements {
+            elem.set_position(t, v, interp);
+        }
+    }
+
+    pub fn set_scale(&self, t: f64, v: Length<WIDTH, HEIGHT>, interp: InterpType) {
+        for elem in &self.shape_elements {
+            elem.set_scale(t, v, interp);
+        }
+    }
+
+    pub fn set_fill_rgba(&self, t: f64, v: ColourRgba, interp: InterpType) {
+        for elem in &self.shape_elements {
+            elem.set_fill_rgba(t, v, interp);
+        }
+    }
+
+    pub fn set_fill_rgb(&self, t: f64, v: ColourRgb, interp: InterpType) {
+        for elem in &self.shape_elements {
+            elem.set_fill_rgb(t, v, interp);
+        }
+    }
+
+    pub fn set_fill_alpha(&self, t: f64, alpha: f64, interp: InterpType) {
+        for elem in &self.shape_elements {
+            elem.set_fill_alpha(t, alpha, interp);
+        }
+    }
+
+    pub fn set_boundary_thickness(&self, t: f64, v: Length<WIDTH, HEIGHT>, interp: InterpType) {
+        for elem in &self.shape_elements {
+            elem.set_boundary_thickness(t, v, interp);
+        }
+    }
+
+    pub fn set_boundary_rgba(&self, t: f64, v: ColourRgba, interp: InterpType) {
+        for elem in &self.shape_elements {
+            elem.set_boundary_rgba(t, v, interp);
+        }
+    }
+
+    pub fn set_boundary_rgb(&self, t: f64, v: ColourRgb, interp: InterpType) {
+        for elem in &self.shape_elements {
+            elem.set_boundary_rgb(t, v, interp);
+        }
+    }
+
+    pub fn set_boundary_alpha(&self, t: f64, alpha: f64, interp: InterpType) {
+        for elem in &self.shape_elements {
+            elem.set_boundary_alpha(t, alpha, interp);
+        }
+    }
+
+    pub fn set_boundary_frac(&self, t: f64, v: (f64, f64), interp: InterpType) {
+        for elem in &self.shape_elements {
+            elem.set_boundary_frac(t, v, interp);
+        }
+    }
+
+    pub fn set_boundary_mode(&self, t: f64, v: BoundaryMode) {
+        for elem in &self.shape_elements {
+            elem.set_boundary_mode(t, v);
+        }
+    }
+}
+
+impl<const WIDTH: u32, const HEIGHT: u32> AnimationElement<WIDTH, HEIGHT>
+    for ShapeElementCollection<WIDTH, HEIGHT>
+{
+    fn set_within_rect(&self, t: f64, rect: Rect<WIDTH, HEIGHT>, interp: InterpType) {
+        if let Some(bounding_rect) = self
+            .shape_elements
+            .iter()
+            .filter_map(|shape_element| shape_element.bounding_rect(t))
+            .reduce(|a, b| {
+                let min_x = a.min().x.min(b.min().x);
+                let min_y = a.min().y.min(b.min().y);
+                let max_x = a.max().x.max(b.max().x);
+                let max_y = a.max().y.max(b.max().y);
+                geo::Rect::new(
+                    geo::Coord { x: min_x, y: min_y },
+                    geo::Coord { x: max_x, y: max_y },
+                )
+            })
+        {
+            let (br_min_x, br_min_y) = bounding_rect.min().x_y();
+            let (br_w, br_h) = (bounding_rect.width(), bounding_rect.height());
+            let (r_w, r_h) = rect.size().pixels();
+            self.set_origin(t, (br_min_x + 0.5 * br_w, br_min_y + 0.5 * br_h), interp);
+            self.set_position(t, rect.center(), interp);
+            self.set_scale(
+                t,
+                if br_w * r_h < br_h * r_w {
+                    rect.height() / br_h
+                } else {
+                    rect.width() / br_w
+                },
+                interp,
+            );
+        }
+    }
+
+    fn apply(&self, t: f64, image_spec: ImageSpec) -> ImageSpec {
+        todo!()
+    }
 }
 
 pub enum SubVideoSource {
@@ -287,39 +328,6 @@ pub enum SubVideoSource {
         size_ratio: (f64, f64),
         images: Box<dyn Timeline<Option<ImageSpec>>>,
     },
-}
-
-pub struct SubVideoElementBuilder<const WIDTH: u32, const HEIGHT: u32> {
-    origin: (f64, f64),
-    position: Pos2<WIDTH, HEIGHT>,
-    source: SubVideoSource,
-    size: SizeConstraint,
-}
-
-impl<const WIDTH: u32, const HEIGHT: u32> SubVideoElementBuilder<WIDTH, HEIGHT> {
-    pub fn new(source: SubVideoSource, size: SizeConstraint) -> Self {
-        Self {
-            origin: (0.5, 0.5),
-            position: Pos2::new(0.5 * SCREEN_UNITS, 0.5 * SCREEN_UNITS),
-            source,
-            size,
-        }
-    }
-
-    pub fn origin(mut self, origin: (f64, f64)) -> Self {
-        self.origin = origin;
-        self
-    }
-
-    pub fn position(mut self, position: Pos2<WIDTH, HEIGHT>) -> Self {
-        self.position = position;
-        self
-    }
-
-    pub fn size(mut self, size: SizeConstraint) -> Self {
-        self.size = size;
-        self
-    }
 }
 
 pub struct SubVideoElement<const WIDTH: u32, const HEIGHT: u32> {
@@ -332,69 +340,27 @@ pub struct SubVideoElement<const WIDTH: u32, const HEIGHT: u32> {
 }
 
 impl<const WIDTH: u32, const HEIGHT: u32> SubVideoElement<WIDTH, HEIGHT> {
-    pub fn new(at_t: f64, builder: SubVideoElementBuilder<WIDTH, HEIGHT>) -> Self {
-        let (images, size_ratio): (Box<dyn Timeline<Option<ImageSpec>>>, _) = match builder.source {
-            SubVideoSource::Video(video_spec) => {
-                let (w, h) = video_spec.size();
-                (Box::new(video_spec.image_timeline()), (w as f64, h as f64))
-            }
-            SubVideoSource::ImageTimeline { size_ratio, images } => (images, size_ratio),
-        };
-        Self {
-            at_t,
-            images,
-            size_ratio,
-            origin: RefCell::new(InterpTimeline::new(builder.origin)),
-            position: RefCell::new(InterpTimeline::new(builder.position)),
-            size: RefCell::new(InterpTimeline::new(match builder.size {
-                SizeConstraint::Width(width) => Vec2::from_x_and_slope(width, size_ratio),
-                SizeConstraint::Height(height) => Vec2::from_y_and_slope(height, size_ratio),
-                SizeConstraint::Size(width, height) => Vec2::new(width, height),
-            })),
-        }
-    }
-
-    pub fn set_origin(&self, t: f64, v: (f64, f64), interp: impl Interp<(f64, f64)> + 'static) {
+    pub fn set_origin(&self, t: f64, v: (f64, f64), interp: InterpType) {
         self.origin.borrow_mut().set(t, v, interp);
     }
 
-    pub fn set_position(
-        &self,
-        t: f64,
-        v: Pos2<WIDTH, HEIGHT>,
-        interp: impl Interp<Pos2<WIDTH, HEIGHT>> + 'static,
-    ) {
+    pub fn set_position(&self, t: f64, v: Pos2<WIDTH, HEIGHT>, interp: InterpType) {
         self.position.borrow_mut().set(t, v, interp);
     }
 
-    pub fn set_width(
-        &self,
-        t: f64,
-        width: f64,
-        interp: impl Interp<Vec2<WIDTH, HEIGHT>> + 'static,
-    ) {
+    pub fn set_width(&self, t: f64, width: Length<WIDTH, HEIGHT>, interp: InterpType) {
         self.size
             .borrow_mut()
             .set(t, Vec2::from_x_and_slope(width, self.size_ratio), interp);
     }
 
-    pub fn set_height(
-        &self,
-        t: f64,
-        height: f64,
-        interp: impl Interp<Vec2<WIDTH, HEIGHT>> + 'static,
-    ) {
+    pub fn set_height(&self, t: f64, height: Length<WIDTH, HEIGHT>, interp: InterpType) {
         self.size
             .borrow_mut()
             .set(t, Vec2::from_y_and_slope(height, self.size_ratio), interp);
     }
 
-    pub fn set_size(
-        &self,
-        t: f64,
-        v: Vec2<WIDTH, HEIGHT>,
-        interp: impl Interp<Vec2<WIDTH, HEIGHT>> + 'static,
-    ) {
+    pub fn set_size(&self, t: f64, v: Vec2<WIDTH, HEIGHT>, interp: InterpType) {
         self.size.borrow_mut().set(t, v, interp);
     }
 }
@@ -429,6 +395,18 @@ impl<const WIDTH: u32, const HEIGHT: u32> AnimationElement<WIDTH, HEIGHT>
             image_spec
         }
     }
+
+    fn set_within_rect(&self, t: f64, rect: Rect<WIDTH, HEIGHT>, interp: InterpType) {
+        self.set_origin(t, (0.5, 0.5), interp);
+        self.set_position(t, rect.center(), interp);
+        let (rw, rh) = rect.size().to_lengths();
+        let (sw, sh) = self.size_ratio;
+        if rw * sh < rh * sw {
+            self.set_width(t, rw, interp);
+        } else {
+            self.set_height(t, rh, interp);
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -456,10 +434,58 @@ impl<const WIDTH: u32, const HEIGHT: u32> Animation<WIDTH, HEIGHT> {
         }
     }
 
-    pub fn add_visual<E: AnimationElement<WIDTH, HEIGHT> + 'static>(
+    pub fn add_shape(&mut self, shape: ShapeSpec) -> Rc<ShapeElement<WIDTH, HEIGHT>> {
+        self.add_visual(ShapeElement {
+            shape: Box::new(ConstantTimeline::new(shape)),
+            origin: RefCell::new(InterpTimeline::new((0.0, 0.0))),
+            position: RefCell::new(InterpTimeline::new(Rect::fullscreen().center())),
+            scale: RefCell::new(InterpTimeline::new(Length::from_units(0.5 * SCREEN_UNITS))),
+            fill_colour: RefCell::new(InterpTimeline::new(ColourRgba {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0,
+                a: 0.0,
+            })),
+            boundary_thickness: RefCell::new(InterpTimeline::new(Length::from_units(
+                0.001 * SCREEN_UNITS,
+            ))),
+            boundary_colour: RefCell::new(InterpTimeline::new(ColourRgba {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0,
+                a: 0.0,
+            })),
+            boundary_frac: RefCell::new(InterpTimeline::new((0.0, 1.0))),
+            boundary_mode: RefCell::new(InterpTimeline::new(BoundaryMode::Middle)),
+        })
+    }
+
+    pub fn add_subanimation(
         &mut self,
-        element: E,
-    ) -> Rc<E> {
+        at_t: f64,
+        source: SubVideoSource,
+    ) -> Rc<SubVideoElement<WIDTH, HEIGHT>> {
+        let (images, size_ratio): (Box<dyn Timeline<Option<ImageSpec>>>, _) = match source {
+            SubVideoSource::Video(video_spec) => {
+                let (w, h) = video_spec.size();
+                (Box::new(video_spec.image_timeline()), (w as f64, h as f64))
+            }
+            SubVideoSource::ImageTimeline { size_ratio, images } => (images, size_ratio),
+        };
+        self.add_visual(SubVideoElement {
+            at_t,
+            images,
+            size_ratio,
+            origin: RefCell::new(InterpTimeline::new((0.5, 0.5))),
+            position: RefCell::new(InterpTimeline::new(Rect::fullscreen().center())),
+            size: RefCell::new(InterpTimeline::new(Vec2::from_units(
+                0.5 * SCREEN_UNITS,
+                0.5 * SCREEN_UNITS,
+            ))),
+        })
+    }
+
+    fn add_visual<E: AnimationElement<WIDTH, HEIGHT>>(&mut self, element: E) -> Rc<E> {
         let element = Rc::new(element);
         self.elements.push(element.clone());
         element
