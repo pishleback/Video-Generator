@@ -40,7 +40,6 @@ impl ImageSpec {
     pub fn make_image(&self, path: &Path) {
         match self {
             ImageSpec::Latex(x) => x.make_image(path),
-            ImageSpec::Shape(x) => x.make_image(path),
             ImageSpec::Filled {
                 width,
                 height,
@@ -59,6 +58,7 @@ impl ImageSpec {
 
     pub fn image(&self) -> image::DynamicImage {
         match self {
+            ImageSpec::Shape(x) => x.image(),
             ImageSpec::VideoFrame { video, frame } => {
                 DynamicImage::from(video.frame(*frame).unwrap())
             }
