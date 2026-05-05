@@ -600,7 +600,7 @@ pub struct ShapeImage {
 }
 
 impl ShapeImage {
-    pub fn make_image(&self, path: &Path) {
+    pub fn image(&self) -> DynamicImage {
         // convert geo coords to image points
         let to_points = |coords: &LineString<f64>| -> Vec<imageproc::point::Point<i32>> {
             coords
@@ -636,10 +636,6 @@ impl ShapeImage {
                 draw_polygon_mut(&mut img, &to_points(hole), self.bg_colour.to_rgba());
             }
         }
-        let img = DynamicImage::ImageRgba8(img)
-            .resize_exact(self.width, self.height, FilterType::CatmullRom)
-            .to_rgba8();
-
-        img.save(path).unwrap();
+        DynamicImage::ImageRgba8(img).resize_exact(self.width, self.height, FilterType::CatmullRom)
     }
 }
