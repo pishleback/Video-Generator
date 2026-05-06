@@ -4,7 +4,7 @@ use crate::{
     shape::ShapeImage,
     video::VideoSpec,
 };
-use image::{DynamicImage, ImageBuffer, Rgba, imageops::FilterType};
+use image::{DynamicImage, ImageBuffer, imageops::FilterType};
 use serde::{Deserialize, Serialize};
 use std::{
     io::Write,
@@ -24,8 +24,7 @@ pub enum ImageSpec {
         height: u32,
     },
     BlitStack {
-        width: u32,
-        height: u32,
+        base: Box<ImageSpec>,
         layers: Vec<((f64, f64), ImageSpec)>,
     },
     VideoFrame {
@@ -69,17 +68,13 @@ impl ImageSpec {
             } => image
                 .image()
                 .resize_exact(*width, *height, FilterType::CatmullRom),
-            ImageSpec::BlitStack {
-                width,
-                height,
-                layers,
-            } => {
-                let mut result = ImageBuffer::from_fn(*width, *height, |_x, _y| Rgba([0, 0, 0, 0]));
+            ImageSpec::BlitStack { base, layers } => {
+                let mut result = base.image();
                 for ((x, y), image_spec) in layers {
                     let img = image_spec.image();
                     image::imageops::overlay(&mut result, &img, *x as i64, *y as i64);
                 }
-                DynamicImage::from(result)
+                result
             }
             _ => image::open(self.make_path()).unwrap(),
         }

@@ -6,5 +6,6 @@ pub mod data;
 pub mod image;
 pub mod interpolation;
 pub mod shape;
+pub mod slideshow;
 pub mod timeline;
 pub mod video;

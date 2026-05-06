@@ -1,6 +1,6 @@
 use ordered_float::OrderedFloat;
 
-use crate::interpolation::{ImmediateInterp, Interp, InterpType, Interpable};
+use crate::interpolation::{ImmediateInterp, Interp, InterpType, InterpTypeResult, Interpable};
 
 pub trait Timeline<V> {
     fn at_time(&self, t: f64) -> V;
@@ -45,21 +45,33 @@ impl<V: Clone + 'static> InterpTimeline<V> {
         }
     }
 
-    pub fn set_raw(&mut self, t: f64, from: Option<V>, to: V, interp: Box<dyn Interp<V>>) {
-        let from = from.unwrap_or_else(|| self.at_time(t));
-        self.keyframes.push(InterpTimelineKeyframe {
-            at_t: t,
-            from,
-            to,
-            interp,
-        });
-        self.keyframes.sort_by_key(|k| OrderedFloat::from(k.at_t));
+    pub(crate) fn set_raw(&mut self, t: f64, from: Option<V>, to: V, interp: InterpTypeResult<V>) {
+        match interp {
+            InterpTypeResult::Initial => {
+                self.default_value = to;
+            }
+            InterpTypeResult::Interp(interp) => {
+                let from = from.unwrap_or_else(|| self.at_time(t));
+                self.keyframes.push(InterpTimelineKeyframe {
+                    at_t: t,
+                    from,
+                    to,
+                    interp,
+                });
+                self.keyframes.sort_by_key(|k| OrderedFloat::from(k.at_t));
+            }
+        }
     }
 }
 
 impl<V: Clone + 'static> InterpTimeline<V> {
     pub fn set_immediate(&mut self, t: f64, from: Option<V>, to: V) {
-        self.set_raw(t, from, to, Box::new(ImmediateInterp {}));
+        self.set_raw(
+            t,
+            from,
+            to,
+            InterpTypeResult::Interp(Box::new(ImmediateInterp {})),
+        );
     }
 }
 

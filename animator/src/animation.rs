@@ -29,7 +29,7 @@ pub enum BoundaryMode {
 
 pub struct ShapeElement<const WIDTH: u32, const HEIGHT: u32> {
     draw_ordering: RefCell<InterpTimeline<OrderedFloat<f64>>>,
-    shape: Box<dyn Timeline<ShapeSpec>>,
+    shape: Rc<RefCell<dyn Timeline<ShapeSpec>>>,
     origin: RefCell<InterpTimeline<(f64, f64)>>, // in shape coordinates where is the center
     position: RefCell<InterpTimeline<Pos2<WIDTH, HEIGHT>>>, // as parts per thousand of the view
     scale: RefCell<InterpTimeline<Length<WIDTH, HEIGHT>>>,
@@ -139,7 +139,7 @@ impl<const WIDTH: u32, const HEIGHT: u32> ShapeElement<WIDTH, HEIGHT> {
     }
 
     fn bounding_rect(&self, t: f64) -> Option<geo::Rect> {
-        let shape = self.shape.at_time(t).shape();
+        let shape = self.shape.borrow().at_time(t).shape();
         shape.bounding_rect()
     }
 }
@@ -163,6 +163,7 @@ impl<const WIDTH: u32, const HEIGHT: u32> AnimationElement<WIDTH, HEIGHT>
 
         let shape = self
             .shape
+            .borrow()
             .at_time(t)
             .translate(-origin_x, -origin_y)
             .scale(scale.pixels())
@@ -192,7 +193,7 @@ impl<const WIDTH: u32, const HEIGHT: u32> AnimationElement<WIDTH, HEIGHT>
             return image_spec;
         }
 
-        let mut layers = vec![((0.0, 0.0), image_spec)];
+        let mut layers = vec![];
         if fill_alpha != 0.0 {
             layers.push(((0.0, 0.0), {
                 shape.image(
@@ -234,14 +235,13 @@ impl<const WIDTH: u32, const HEIGHT: u32> AnimationElement<WIDTH, HEIGHT>
             }));
         }
         ImageSpec::BlitStack {
-            width: WIDTH,
-            height: HEIGHT,
+            base: Box::new(image_spec),
             layers,
         }
     }
 
     fn set_within_rect(&self, t: f64, rect: Rect<WIDTH, HEIGHT>, interp: InterpType) {
-        let shape = self.shape.at_time(t).shape();
+        let shape = self.shape.borrow().at_time(t).shape();
         if let Some(bounding_rect) = shape.bounding_rect() {
             let (br_min_x, br_min_y) = bounding_rect.min().x_y();
             let (br_w, br_h) = (bounding_rect.width(), bounding_rect.height());
@@ -506,22 +506,18 @@ impl<const WIDTH: u32, const HEIGHT: u32> AnimationElement<WIDTH, HEIGHT>
             let (position_x, position_y) = self.position.borrow().at_time(t).pixels();
             let (size_w, size_h) = self.size.borrow().at_time(t).pixels();
             ImageSpec::BlitStack {
-                width: WIDTH,
-                height: HEIGHT,
-                layers: vec![
-                    ((0.0, 0.0), image_spec),
+                base: Box::new(image_spec),
+                layers: vec![(
                     (
-                        (
-                            position_x - origin_x * size_w,
-                            position_y - origin_y * size_h,
-                        ),
-                        ImageSpec::Resize {
-                            image: Box::new(img),
-                            width: size_w as u32,
-                            height: size_h as u32,
-                        },
+                        position_x - origin_x * size_w,
+                        position_y - origin_y * size_h,
                     ),
-                ],
+                    ImageSpec::Resize {
+                        image: Box::new(img),
+                        width: size_w as u32,
+                        height: size_h as u32,
+                    },
+                )],
             }
         } else {
             image_spec
@@ -566,13 +562,16 @@ impl<const WIDTH: u32, const HEIGHT: u32> Animation<WIDTH, HEIGHT> {
         }
     }
 
-    pub fn add_shape(&mut self, shape: ShapeSpec) -> Rc<ShapeElement<WIDTH, HEIGHT>> {
+    pub fn add_shape_timeline(
+        &mut self,
+        shape: Rc<RefCell<dyn Timeline<ShapeSpec>>>,
+    ) -> Rc<ShapeElement<WIDTH, HEIGHT>> {
         self.add_visual(ShapeElement {
             draw_ordering: RefCell::new(InterpTimeline::new(0.0.into())),
-            shape: Box::new(ConstantTimeline::new(shape)),
+            shape,
             origin: RefCell::new(InterpTimeline::new((0.0, 0.0))),
             position: RefCell::new(InterpTimeline::new(Rect::fullscreen().center())),
-            scale: RefCell::new(InterpTimeline::new(Length::from_units(0.5 * SCREEN_UNITS))),
+            scale: RefCell::new(InterpTimeline::new(Length::from_units(SCREEN_UNITS / 2.0))),
             fill_rgb: RefCell::new(InterpTimeline::new(ColourRgb {
                 r: 1.0,
                 g: 1.0,
@@ -592,6 +591,10 @@ impl<const WIDTH: u32, const HEIGHT: u32> Animation<WIDTH, HEIGHT> {
             boundary_frac_2: RefCell::new(InterpTimeline::new(1.0)),
             boundary_mode: RefCell::new(InterpTimeline::new(BoundaryMode::Middle)),
         })
+    }
+
+    pub fn add_shape(&mut self, shape: ShapeSpec) -> Rc<ShapeElement<WIDTH, HEIGHT>> {
+        self.add_shape_timeline(Rc::new(RefCell::new(ConstantTimeline::new(shape))))
     }
 
     pub fn add_subanimation(

@@ -54,6 +54,7 @@ pub trait Interp<V>: Debug + 'static {
 
 #[derive(Debug, Clone, Copy)]
 pub enum InterpType {
+    Initial,
     Immediate,
     Linear { duration: f64 },
     Exp { duration: f64 },
@@ -62,15 +63,31 @@ pub enum InterpType {
     FastEnd { duration: f64 },
 }
 
+pub(crate) enum InterpTypeResult<V> {
+    Initial,
+    Interp(Box<dyn Interp<V>>),
+}
+
 impl InterpType {
-    pub(crate) fn interp<V: Interpable + Clone>(self) -> Box<dyn Interp<V>> {
+    pub(crate) fn interp<V: Interpable + Clone>(self) -> InterpTypeResult<V> {
         match self {
-            InterpType::Immediate => Box::new(ImmediateInterp {}),
-            InterpType::Linear { duration } => Box::new(LinearInterp { duration }),
-            InterpType::Exp { duration } => Box::new(ExpInterp { duration }),
-            InterpType::Exp2 { duration } => Box::new(Exp2Interp { duration }),
-            InterpType::FastStart { duration } => Box::new(FastStartInterp { duration }),
-            InterpType::FastEnd { duration } => Box::new(FastEndInterp { duration }),
+            InterpType::Initial => InterpTypeResult::Initial,
+            InterpType::Immediate => InterpTypeResult::Interp(Box::new(ImmediateInterp {})),
+            InterpType::Linear { duration } => {
+                InterpTypeResult::Interp(Box::new(LinearInterp { duration }))
+            }
+            InterpType::Exp { duration } => {
+                InterpTypeResult::Interp(Box::new(ExpInterp { duration }))
+            }
+            InterpType::Exp2 { duration } => {
+                InterpTypeResult::Interp(Box::new(Exp2Interp { duration }))
+            }
+            InterpType::FastStart { duration } => {
+                InterpTypeResult::Interp(Box::new(FastStartInterp { duration }))
+            }
+            InterpType::FastEnd { duration } => {
+                InterpTypeResult::Interp(Box::new(FastEndInterp { duration }))
+            }
         }
     }
 }

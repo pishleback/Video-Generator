@@ -11,7 +11,11 @@ use animator::{
 };
 use animator::{audio::AudioSpec, video::VideoSpec};
 use imageproc::drawing::Canvas;
-use std::path::{Path, PathBuf};
+use std::{
+    cell::RefCell,
+    path::{Path, PathBuf},
+    rc::Rc,
+};
 
 fn main() {
     let mut t = 0.0;
@@ -47,9 +51,9 @@ fn main() {
             g: 1.0,
             b: 1.0,
         },
-        InterpType::Immediate,
+        InterpType::Initial,
     );
-    elem1.set_boundary_alpha(t, None, 1.0, InterpType::Immediate);
+    elem1.set_boundary_alpha(t, None, 1.0, InterpType::Initial);
 
     t += 3.0;
 

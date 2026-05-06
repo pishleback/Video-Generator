@@ -1,4 +1,4 @@
-use std::ops::{Div, Mul};
+use std::ops::{Add, Div, Mul, Sub};
 
 use ordered_float::OrderedFloat;
 
@@ -120,30 +120,6 @@ impl<const WIDTH: u32, const HEIGHT: u32> Interpable for Length<WIDTH, HEIGHT> {
     }
 }
 
-// length * scalar
-impl<const WIDTH: u32, const HEIGHT: u32> Mul<f64> for Length<WIDTH, HEIGHT> {
-    type Output = Length<WIDTH, HEIGHT>;
-    fn mul(self, other: f64) -> Self::Output {
-        Length { v: self.v * other }
-    }
-}
-
-// scalar * length
-impl<const WIDTH: u32, const HEIGHT: u32> Mul<Length<WIDTH, HEIGHT>> for f64 {
-    type Output = Length<WIDTH, HEIGHT>;
-    fn mul(self, other: Length<WIDTH, HEIGHT>) -> Self::Output {
-        Length { v: self * other.v }
-    }
-}
-
-// length / scalar
-impl<const WIDTH: u32, const HEIGHT: u32> Div<f64> for Length<WIDTH, HEIGHT> {
-    type Output = Length<WIDTH, HEIGHT>;
-    fn div(self, other: f64) -> Self::Output {
-        Length { v: self.v / other }
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 pub struct Rect<const WIDTH: u32, const HEIGHT: u32> {
     min_x: f64,
@@ -231,6 +207,10 @@ impl<const WIDTH: u32, const HEIGHT: u32> Rect<WIDTH, HEIGHT> {
         )
     }
 
+    pub fn top_left(&self) -> Pos2<WIDTH, HEIGHT> {
+        Pos2 { x: 0.0, y: 0.0 }
+    }
+
     pub fn left_half(&self) -> Self {
         self.split_vertical(0.5).0
     }
@@ -303,5 +283,51 @@ impl<const WIDTH: u32, const HEIGHT: u32> Interpable for Rect<WIDTH, HEIGHT> {
             min_y: f64::interp(&a.min_y, &b.min_y, f),
             max_y: f64::interp(&a.max_y, &b.max_y, f),
         }
+    }
+}
+
+// pos + vec
+impl<const WIDTH: u32, const HEIGHT: u32> Add<Vec2<WIDTH, HEIGHT>> for Pos2<WIDTH, HEIGHT> {
+    type Output = Pos2<WIDTH, HEIGHT>;
+    fn add(self, other: Vec2<WIDTH, HEIGHT>) -> Self::Output {
+        Pos2 {
+            x: self.x + other.x,
+            y: self.y + other.y,
+        }
+    }
+}
+
+// pos - vec
+impl<const WIDTH: u32, const HEIGHT: u32> Sub<Vec2<WIDTH, HEIGHT>> for Pos2<WIDTH, HEIGHT> {
+    type Output = Pos2<WIDTH, HEIGHT>;
+    fn sub(self, other: Vec2<WIDTH, HEIGHT>) -> Self::Output {
+        Pos2 {
+            x: self.x - other.x,
+            y: self.y - other.y,
+        }
+    }
+}
+
+// length * scalar
+impl<const WIDTH: u32, const HEIGHT: u32> Mul<f64> for Length<WIDTH, HEIGHT> {
+    type Output = Length<WIDTH, HEIGHT>;
+    fn mul(self, other: f64) -> Self::Output {
+        Length { v: self.v * other }
+    }
+}
+
+// scalar * length
+impl<const WIDTH: u32, const HEIGHT: u32> Mul<Length<WIDTH, HEIGHT>> for f64 {
+    type Output = Length<WIDTH, HEIGHT>;
+    fn mul(self, other: Length<WIDTH, HEIGHT>) -> Self::Output {
+        Length { v: self * other.v }
+    }
+}
+
+// length / scalar
+impl<const WIDTH: u32, const HEIGHT: u32> Div<f64> for Length<WIDTH, HEIGHT> {
+    type Output = Length<WIDTH, HEIGHT>;
+    fn div(self, other: f64) -> Self::Output {
+        Length { v: self.v / other }
     }
 }
