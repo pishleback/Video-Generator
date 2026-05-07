@@ -48,7 +48,8 @@ fn main() {
             .align(AlignOptions::TopLeft)
             .position((1.0, 1.0))
             .fill_rgba(ColourRgb::from_hsl(0.0, 1.0, 0.5).to_rgba(1.0))
-            .height(0.6);
+            .height(0.6)
+            .interp_id(0);
     });
 
     slideshow.interp().duration(1.0);
@@ -79,7 +80,7 @@ fn main() {
             .interp_id(0);
     });
 
-    let video = slideshow.video(30.0);
+    let video = slideshow.video(10.0);
     let path = video.make_path();
     std::fs::copy(path.clone(), Path::new("outputs/out.mp4")).unwrap();
 }
