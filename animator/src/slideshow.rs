@@ -3,7 +3,7 @@ use crate::{
     coords::{Length, Pos2, Rect, Vec2},
     image::ImageSpec,
     interpolation::Interpable,
-    shape::{ShapeData, ShapeSpec},
+    shape::ShapeSpec,
     video::{VideoCompiledSpec, VideoSpec},
 };
 use geo::Coord;
@@ -1063,6 +1063,10 @@ impl<const W: u32, const H: u32> Picture<W, H> {
         }
     }
 
+    pub fn text(&mut self, text: impl Into<String>) -> &mut PictureShape {
+        self.latex(format!("\\text{{{}}}", text.into()))
+    }
+
     fn bounding_rect(&self) -> Option<geo::Rect> {
         self.elements
             .iter()
@@ -1299,7 +1303,10 @@ impl PictureShape {
         embedding: &SlideEmbedding<W, H>,
     ) -> SlideElement<W, H> {
         SlideElement::Shape {
-            shape: embedding.map_shape(self.shape),
+            shape: embedding.map_shape(self.shape.translate(
+                self.position.0 - self.origin.0,
+                self.position.1 - self.origin.1,
+            )),
             options: self.options,
         }
     }
@@ -1326,22 +1333,34 @@ impl PictureShape {
                 AlignOptions::BottomCenter => (0.5, 1.0),
                 AlignOptions::BottomRight => (1.0, 1.0),
             };
-
-            self.origin = ();
+            let min = br.min().x_y();
+            let max = br.max().x_y();
+            self.origin = (
+                min.0 + align.0 * (max.0 - min.0),
+                min.1 + align.1 * (max.1 - min.1),
+            );
         }
         self
     }
 
     pub fn width(&mut self, width: f64) -> &mut Self {
         if let Some(br) = self.bounding_rect() {
-            self.shape = self.shape.scale(width / br.width());
+            self.shape = self
+                .shape
+                .translate(-self.origin.0, -self.origin.1)
+                .scale(width / br.width())
+                .translate(self.origin.0, self.origin.1);
         }
         self
     }
 
     pub fn height(&mut self, height: f64) -> &mut Self {
         if let Some(br) = self.bounding_rect() {
-            self.shape = self.shape.scale(height / br.height());
+            self.shape = self
+                .shape
+                .translate(-self.origin.0, -self.origin.1)
+                .scale(height / br.height())
+                .translate(self.origin.0, self.origin.1);
         }
         self
     }

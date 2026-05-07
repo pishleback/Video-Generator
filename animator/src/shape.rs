@@ -4,18 +4,15 @@ use crate::{colour::ColourRgba, image::ImageSpec};
 use geo::algorithm::contains::Contains;
 use geo::{
     AffineOps, AffineTransform, Area, BooleanOps, BoundingRect, Buffer, Coord, Distance, Euclidean,
-    Line, LineString, MakeValid, MultiLineString, MultiPolygon, Point, Polygon, Scale,
-    SimplifyVwPreserve, Translate, Validation,
+    Line, LineString, MakeValid, MultiLineString, MultiPolygon, Point, Polygon, SimplifyVwPreserve,
+    Translate, Validation,
 };
-use image::imageops::FilterType;
-use image::{DynamicImage, RgbaImage};
+use image::DynamicImage;
 use image::{GrayImage, Luma};
 use imageproc::contours::{BorderType, Contour, find_contours};
-use imageproc::drawing::draw_polygon_mut;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-
-const AA_RESCALE: u32 = 1; // This is a bit bodge and slow... It would be better to draw with AA using a better library
+use tiny_skia::{Color, FillRule, Paint, PathBuilder, Pixmap, Transform};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ShapeSpec {
@@ -541,53 +538,6 @@ impl ShapeData {
     pub fn subtract(self, other: &Self) -> Self {
         Self::new(self.multipolygon.difference(&other.multipolygon))
     }
-
-    pub fn exmaple() -> Self {
-        // --- Outer polygon ---
-        let exterior = LineString::from(vec![
-            Coord {
-                x: 0.1000,
-                y: 0.1000,
-            },
-            Coord {
-                x: 0.9000,
-                y: 0.1000,
-            },
-            Coord {
-                x: 0.9000,
-                y: 0.9000,
-            },
-            Coord {
-                x: 0.1000,
-                y: 0.9000,
-            },
-            Coord {
-                x: 0.1000,
-                y: 0.1000,
-            },
-        ]);
-
-        // --- Two holes ---
-        let hole1 = LineString::from(vec![
-            Coord { x: 0.300, y: 0.300 },
-            Coord { x: 0.450, y: 0.300 },
-            Coord { x: 0.450, y: 0.450 },
-            Coord { x: 0.300, y: 0.450 },
-            Coord { x: 0.300, y: 0.300 },
-        ]);
-
-        let hole2 = LineString::from(vec![
-            Coord { x: 0.600, y: 0.600 },
-            Coord { x: 0.750, y: 0.600 },
-            Coord { x: 0.750, y: 0.750 },
-            Coord { x: 0.600, y: 0.750 },
-            Coord { x: 0.600, y: 0.600 },
-        ]);
-
-        let polygon = Polygon::new(exterior.clone(), vec![hole1.clone(), hole2.clone()]);
-        let multipolygon = MultiPolygon(vec![polygon]);
-        Self::new(multipolygon)
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -601,41 +551,81 @@ pub struct ShapeImage {
 
 impl ShapeImage {
     pub fn image(&self) -> DynamicImage {
-        // convert geo coords to image points
-        let to_points = |coords: &LineString<f64>| -> Vec<imageproc::point::Point<i32>> {
-            coords
-                .points()
-                .map(|p| imageproc::point::Point::new(p.x() as i32, p.y() as i32))
-                .collect()
-        };
+        let width = self.width;
+        let height = self.height;
 
-        let mut img = RgbaImage::new(AA_RESCALE * self.width, AA_RESCALE * self.height);
+        let mut pixmap = Pixmap::new(width, height).expect("failed to create pixmap");
 
-        // background
-        for pixel in img.pixels_mut() {
-            *pixel = self.bg_colour.to_rgba();
-        }
+        // background fill
+        pixmap.fill(
+            Color::from_rgba(
+                self.bg_colour.r as f32,
+                self.bg_colour.g as f32,
+                self.bg_colour.b as f32,
+                self.bg_colour.a as f32,
+            )
+            .unwrap(),
+        );
 
         let shape = self.shape.shape();
 
-        let mpoly =
-            shape
-                .multipolygon
-                .scale_around_point(AA_RESCALE as f64, AA_RESCALE as f64, (0.0, 0.0));
+        let mut pb = PathBuilder::new();
 
-        // outer polygon
-        for poly in &mpoly {
-            draw_polygon_mut(
-                &mut img,
-                &to_points(poly.exterior()),
-                self.shape_colour.to_rgba(),
-            );
+        for poly in &shape.multipolygon {
+            // exterior ring
+            if let Some((first, rest)) = poly
+                .exterior()
+                .points()
+                .collect::<Vec<_>>()
+                .as_slice()
+                .split_first()
+            {
+                pb.move_to(first.x() as f32, first.y() as f32);
+                for p in rest {
+                    pb.line_to(p.x() as f32, p.y() as f32);
+                }
+                pb.close();
+            }
 
-            // cut out the holes
+            // holes
             for hole in poly.interiors() {
-                draw_polygon_mut(&mut img, &to_points(hole), self.bg_colour.to_rgba());
+                if let Some((first, rest)) =
+                    hole.points().collect::<Vec<_>>().as_slice().split_first()
+                {
+                    pb.move_to(first.x() as f32, first.y() as f32);
+                    for p in rest {
+                        pb.line_to(p.x() as f32, p.y() as f32);
+                    }
+                    pb.close();
+                }
             }
         }
-        DynamicImage::ImageRgba8(img).resize_exact(self.width, self.height, FilterType::CatmullRom)
+
+        let path = pb.finish().expect("invalid path");
+
+        let mut paint = Paint::default();
+        paint.set_color(
+            Color::from_rgba(
+                self.shape_colour.r as f32,
+                self.shape_colour.g as f32,
+                self.shape_colour.b as f32,
+                self.shape_colour.a as f32,
+            )
+            .unwrap(),
+        );
+
+        pixmap.fill_path(
+            &path,
+            &paint,
+            FillRule::EvenOdd,
+            Transform::identity(),
+            None,
+        );
+
+        // convert to DynamicImage
+        DynamicImage::ImageRgba8(
+            image::RgbaImage::from_raw(width, height, pixmap.data().to_vec())
+                .expect("conversion failed"),
+        )
     }
 }
