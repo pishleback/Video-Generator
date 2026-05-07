@@ -1,6 +1,6 @@
 use crate::{
     colour::ColourRgba,
-    coords::{Length, Pos2, Rect, Vec2},
+    coords::{Length, Pos2, Rect, SCREEN_UNITS, Vec2},
     image::ImageSpec,
     interpolation::Interpable,
     shape::ShapeSpec,
@@ -31,6 +31,14 @@ impl InterpType {
     }
 }
 
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+struct InterpId {
+    enabled: bool,
+    user: Option<i64>,
+    draw_order_group: Option<i64>,
+    draw_order_idx: Option<usize>,
+}
+
 /*
 Options for how an object on a slide should be interpolated from the previous slide and to the next slide
 
@@ -43,23 +51,25 @@ Options for how an object on a slide should be interpolated from the previous sl
 */
 #[derive(Debug, Clone, Default)]
 struct InterpOptions {
-    interp_from_id: Option<i64>,
-    interp_to_id: Option<i64>,
+    interp_from_id: InterpId,
+    interp_to_id: InterpId,
     interp_from_type: Option<InterpType>,
     interp_to_type: Option<InterpType>,
 }
 impl InterpOptions {
     fn interp_from_id(&mut self, id: i64) -> &mut Self {
-        self.interp_from_id = Some(id);
+        self.interp_from_id.user = Some(id);
+        self.interp_from_id.enabled = true;
         self
     }
     fn interp_to_id(&mut self, id: i64) -> &mut Self {
-        self.interp_to_id = Some(id);
+        self.interp_to_id.user = Some(id);
+        self.interp_to_id.enabled = true;
         self
     }
     fn interp_id(&mut self, id: i64) -> &mut Self {
-        self.interp_from_id = Some(id);
-        self.interp_to_id = Some(id);
+        self.interp_from_id(id);
+        self.interp_to_id(id);
         self
     }
     fn interp_from_type(&mut self, interp_type: InterpType) -> &mut Self {
@@ -418,7 +428,7 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
         // generate the animation objects spanning multiple frames if interp ids match
         #[derive(Debug, Clone)]
         struct MultiSlideElement<const W: u32, const H: u32> {
-            current_to_id: Option<i64>,
+            current_to_id: InterpId,
             elements: Vec<Option<SlideElement<W, H>>>,
         }
         let multislide_elements = {
@@ -430,9 +440,9 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                     for multislide_element in &active_multislide_elements {
                         for element in &slide.elements {
                             let interp = element.interp_options();
-                            if let Some(i) = interp.interp_from_id
-                                && let Some(j) = multislide_element.current_to_id
-                                && i == j
+                            if interp.interp_from_id.enabled
+                                && multislide_element.current_to_id.enabled
+                                && interp.interp_from_id == multislide_element.current_to_id
                             {
                                 matching_pairs.push((multislide_element, element));
                             }
@@ -466,7 +476,7 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                 // handled below when the multi slide element matches this element
                             }
                             _ => {
-                                panic!("too many interp id matches");
+                                panic!("Too many interp id matches: {:?}", matches);
                             }
                         }
                     }
@@ -481,7 +491,7 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                         match matches.len() {
                             0 => {
                                 finished_multislide_elements.push(MultiSlideElement {
-                                    current_to_id: None,
+                                    current_to_id: InterpId::default(),
                                     elements: multislide_element
                                         .elements
                                         .clone()
@@ -502,7 +512,7 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                 });
                             }
                             _ => {
-                                panic!("too many interp id matches");
+                                panic!("Too many interp id matches: {:?}", matches);
                             }
                         }
                     }
@@ -910,16 +920,27 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
             });
 
             for multislide_instant_element in multislide_instant_elements {
-                let ColourRgba { r, g, b, a } = multislide_instant_element.fill;
-                layers.push(Layer {
-                    top_left: (0.0, 0.0),
-                    image: multislide_instant_element.shape.image(
-                        W,
-                        H,
-                        ColourRgba { r, g, b, a: 0.0 },
-                        ColourRgba { r, g, b, a },
-                    ),
-                });
+                if let Some(br) = multislide_instant_element.shape.shape().bounding_rect() {
+                    let min = br.min().x_y();
+                    let min = (min.0.floor() as u32, min.1.floor() as u32);
+                    let max = br.max().x_y();
+                    let max = (max.0.ceil() as u32, max.1.ceil() as u32);
+                    let width = max.0 - min.0;
+                    let height = max.1 - min.1;
+                    let ColourRgba { r, g, b, a } = multislide_instant_element.fill;
+                    layers.push(Layer {
+                        top_left: (min.0 as f64, min.1 as f64),
+                        image: multislide_instant_element
+                            .shape
+                            .translate(-(min.0 as f64), -(min.1 as f64))
+                            .image(
+                                width,
+                                height,
+                                ColourRgba { r, g, b, a: 0.0 },
+                                ColourRgba { r, g, b, a },
+                            ),
+                    });
+                }
             }
 
             ImageSpec::BlitStack {
@@ -995,8 +1016,22 @@ impl<const W: u32, const H: u32> SlideRegionBuilder<W, H> {
         self.subregions.last_mut().unwrap()
     }
 
+    pub fn title_space(&mut self) -> &mut Self {
+        self.subregions.push(SlideRegionBuilder::new(
+            self.rect
+                .split_horizontal(0.1)
+                .0
+                .pad(Length::from_units(0.01 * SCREEN_UNITS)),
+        ));
+        self.subregions.last_mut().unwrap()
+    }
+
     pub fn picture(&mut self) -> &mut Picture<W, H> {
-        self.pictures.push(Picture { elements: vec![] });
+        self.pictures.push(Picture {
+            elements: vec![],
+            current_interp_from_draw_ordering: None,
+            current_interp_to_draw_ordering: None,
+        });
         self.pictures.last_mut().unwrap()
     }
 
@@ -1017,6 +1052,11 @@ impl<const W: u32, const H: u32> SlideRegionBuilder<W, H> {
     }
 }
 
+struct PictureInterpDrawOrdering {
+    group: i64,
+    idx: usize,
+}
+
 /*
 A picture with coordinates in a space independent of the slide coordinates
 
@@ -1024,14 +1064,52 @@ The picture is fitted within the rect on the slide
 */
 pub struct Picture<const W: u32, const H: u32> {
     elements: Vec<PictureElement>,
+    current_interp_from_draw_ordering: Option<PictureInterpDrawOrdering>,
+    current_interp_to_draw_ordering: Option<PictureInterpDrawOrdering>,
 }
 
 impl<const W: u32, const H: u32> Picture<W, H> {
+    fn current_initial_shape_options(&mut self) -> ShapeOptions {
+        let mut options = ShapeOptions::default();
+        if let Some(interp_draw_ordering) = &mut self.current_interp_from_draw_ordering {
+            options.interp.interp_from_id.enabled = true;
+            options.interp.interp_from_id.draw_order_group = Some(interp_draw_ordering.group);
+            options.interp.interp_from_id.draw_order_idx = Some(interp_draw_ordering.idx);
+            interp_draw_ordering.idx += 1;
+        }
+        if let Some(interp_draw_ordering) = &mut self.current_interp_to_draw_ordering {
+            options.interp.interp_to_id.enabled = true;
+            options.interp.interp_to_id.draw_order_group = Some(interp_draw_ordering.group);
+            options.interp.interp_to_id.draw_order_idx = Some(interp_draw_ordering.idx);
+            interp_draw_ordering.idx += 1;
+        }
+        options
+    }
+
+    pub fn start_interp_id_group(&mut self, group_id: i64) -> &mut Self {
+        self.current_interp_from_draw_ordering = Some(PictureInterpDrawOrdering {
+            group: group_id,
+            idx: 0,
+        });
+        self.current_interp_to_draw_ordering = Some(PictureInterpDrawOrdering {
+            group: group_id,
+            idx: 0,
+        });
+        self
+    }
+
+    pub fn stop_interp_id_group(&mut self) -> &mut Self {
+        self.current_interp_from_draw_ordering = None;
+        self.current_interp_to_draw_ordering = None;
+        self
+    }
+
     pub fn circle(&mut self, center: (f64, f64), radius: f64) -> &mut PictureCircle {
+        let options = self.current_initial_shape_options();
         self.elements.push(PictureElement::Circle(PictureCircle {
             center,
             radius,
-            options: Default::default(),
+            options,
         }));
         match self.elements.last_mut().unwrap() {
             PictureElement::Circle(x) => x,
@@ -1040,11 +1118,12 @@ impl<const W: u32, const H: u32> Picture<W, H> {
     }
 
     pub fn line(&mut self, start: (f64, f64), end: (f64, f64), radius: f64) -> &mut PictureLine {
+        let options = self.current_initial_shape_options();
         self.elements.push(PictureElement::Line(PictureLine {
             start,
             end,
             radius,
-            options: Default::default(),
+            options,
         }));
         match self.elements.last_mut().unwrap() {
             PictureElement::Line(x) => x,
@@ -1053,9 +1132,12 @@ impl<const W: u32, const H: u32> Picture<W, H> {
     }
 
     pub fn latex(&mut self, expr: impl Into<String>) -> &mut PictureShape {
+        let options = self.current_initial_shape_options();
         self.elements.push(PictureElement::Shape(PictureShape {
             shape: ShapeSpec::latex(expr.into()),
-            ..Default::default()
+            origin: (0.0, 0.0),
+            position: (0.0, 0.0),
+            options,
         }));
         match self.elements.last_mut().unwrap() {
             PictureElement::Shape(x) => x,
