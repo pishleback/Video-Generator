@@ -1,9 +1,14 @@
+use crate::interpolation::{ImmediateInterp, Interp, InterpType, InterpTypeResult, Interpable};
 use ordered_float::OrderedFloat;
 
-use crate::interpolation::{ImmediateInterp, Interp, InterpType, InterpTypeResult, Interpable};
-
-pub trait Timeline<V> {
+pub trait Timeline<V>: 'static {
     fn at_time(&self, t: f64) -> V;
+}
+
+impl<V: Clone + 'static> Timeline<V> for V {
+    fn at_time(&self, _t: f64) -> V {
+        self.clone()
+    }
 }
 
 #[derive(Debug)]
@@ -17,7 +22,7 @@ impl<V: Clone> ConstantTimeline<V> {
     }
 }
 
-impl<V: Clone> Timeline<V> for ConstantTimeline<V> {
+impl<V: Clone + 'static> Timeline<V> for ConstantTimeline<V> {
     fn at_time(&self, _t: f64) -> V {
         self.value.clone()
     }

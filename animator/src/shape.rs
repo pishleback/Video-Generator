@@ -14,6 +14,8 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tiny_skia::{Color, FillRule, Paint, PathBuilder, Pixmap, Transform};
 
+const EPSILON: f64 = 10e-10;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ShapeSpec {
     Empty,
@@ -90,20 +92,21 @@ impl ShapeSpec {
             ShapeSpec::Circle {
                 center: (x, y),
                 radius,
-            } => ShapeData {
-                multipolygon: Point::new(*x, *y).buffer(*radius),
-            },
+            } => ShapeData::new(Point::new(*x, *y).buffer(radius.max(EPSILON))),
             ShapeSpec::Line {
                 point1: (x1, y1),
                 point2: (x2, y2),
                 radius,
-            } => ShapeData {
-                multipolygon: Line::new(Point::new(*x1, *y1), Point::new(*x2, *y2)).buffer(*radius),
-            },
+            } => ShapeData::new(
+                Line::new(Point::new(*x1, *y1), Point::new(*x2, *y2)).buffer(radius.max(EPSILON)),
+            ),
             ShapeSpec::Scale {
                 shape,
                 scale_factor,
-            } => shape.shape().scale(*scale_factor),
+            } => {
+                debug_assert_ne!(scale_factor, &0.0);
+                shape.shape().scale(*scale_factor)
+            }
             ShapeSpec::Translate {
                 shape,
                 x_offset,
@@ -298,11 +301,21 @@ pub struct ShapeData {
 
 impl ShapeData {
     pub fn new(multipolygon: MultiPolygon) -> Self {
+        for poly in &multipolygon.0 {
+            for line in vec![poly.exterior()].into_iter().chain(poly.interiors()) {
+                for point in line {
+                    debug_assert!(!point.x.is_nan());
+                    debug_assert!(!point.y.is_nan());
+                }
+            }
+        }
+
         let es = multipolygon.validation_errors();
         for e in &es {
             println!("Invalid geometry: {}", e);
         }
         assert!(es.is_empty());
+        assert!(multipolygon.is_valid());
 
         Self { multipolygon }
     }
@@ -312,6 +325,9 @@ impl ShapeData {
     }
 
     pub fn scale(self, scale_factor: f64) -> Self {
+        debug_assert!(!scale_factor.is_nan());
+        debug_assert_ne!(scale_factor, 0.0);
+        debug_assert!(scale_factor.is_finite());
         Self::new(self.multipolygon.affine_transform(&AffineTransform::scale(
             scale_factor,
             scale_factor,
@@ -320,6 +336,8 @@ impl ShapeData {
     }
 
     pub fn translate(self, x_offset: f64, y_offset: f64) -> Self {
+        debug_assert!(!x_offset.is_nan());
+        debug_assert!(!y_offset.is_nan());
         Self::new(self.multipolygon.translate(x_offset, y_offset))
     }
 
