@@ -29,6 +29,16 @@ fn main() {
             //         .fill_rgba(ColourRgb::from_hsl(a_deg, 1.0, 0.5).to_rgba(1.0));
             // }
 
+            picture.video(VideoSpec); // play video from the start
+
+            picture.video(VideoSpec).chain(); // continue video from previous one. Assumes video spec is the same and inter IDs match
+
+            picture.animate(|picture, t| {
+                picture.circle((1 * t, 1 * t), 1 * t);
+                picture.circle((2 * t, 2 * t), 2 * t);
+                picture.circle((3 * t, 3 * t), 3 * t);
+            }); // should be same as 3 circles at the top level with t passed individually
+
             let mut pts = vec![(0.0, 0.0)];
             for i in 0..5 {
                 let a = std::f64::consts::TAU * (i as f64) / 5.0;
