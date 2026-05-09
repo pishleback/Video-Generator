@@ -79,7 +79,7 @@ fn main() {
         .slide(|slide| {
             slide.title_space().picture().text("This is another Title");
 
-            slide.right_half().bottom_half().canvas(|canvas, t| {
+            slide.left_half().bottom_half().canvas(|canvas, t| {
                 let group = canvas.group().interp_id(1);
                 group.circle((2.0, 2.0), 0.2);
                 group.circle((-2.0, 2.0), 0.2);
@@ -87,7 +87,7 @@ fn main() {
                 group.circle((-2.0, -2.0), 0.2);
             });
 
-            let picture = slide.left_half().bottom_half().picture();
+            let picture = slide.right_half().bottom_half().picture();
 
             let mut pts = vec![(0.0, 0.0)];
             for i in 0..5 {

@@ -7,7 +7,11 @@ use crate::{
     video::{VideoCompiledSpec, VideoSpec},
 };
 use ordered_float::OrderedFloat;
-use std::rc::Rc;
+use std::{
+    collections::{HashMap, HashSet},
+    f32::consts::E,
+    rc::Rc,
+};
 
 #[derive(Debug, Clone)]
 struct BoundingRect {
@@ -97,7 +101,7 @@ An ID associated with temporal elements used to match up elements between slides
 */
 #[derive(Default, Debug, Clone, PartialEq, Eq, Hash)]
 struct InterpId {
-    user: i64,
+    id: i64,
     // a list of indicies describing the path of the element in terms of its position in nested draw groups
     draw_order_idx: Vec<usize>,
 }
@@ -122,14 +126,14 @@ struct TemporalInterpOptions {
 impl TemporalInterpOptions {
     fn interp_from_id(&mut self, id: i64) -> &mut Self {
         self.interp_from_id = Some(InterpId {
-            user: id,
+            id,
             draw_order_idx: vec![],
         });
         self
     }
     fn interp_to_id(&mut self, id: i64) -> &mut Self {
         self.interp_to_id = Some(InterpId {
-            user: id,
+            id,
             draw_order_idx: vec![],
         });
         self
@@ -1399,36 +1403,57 @@ impl CanvasElementOrGroup {
             CanvasElementOrGroup::Element(element) => {
                 let interp_id = match &element {
                     CanvasElement::Circle(circle) => circle.interp_id.map(|id| InterpId {
-                        user: id,
+                        id,
                         draw_order_idx: vec![],
                     }),
                     CanvasElement::Line(line) => line.interp_id.map(|id| InterpId {
-                        user: id,
+                        id,
                         draw_order_idx: vec![],
                     }),
                 };
                 vec![CanvasElementWithInterpId { element, interp_id }]
             }
-            CanvasElementOrGroup::Group(group) => group
-                .flatten()
-                .into_iter()
-                .enumerate()
-                .map(|(idx, mut element)| {
-                    if let Some(interp_id) = element.interp_id.as_mut() {
-                        interp_id.draw_order_idx.insert(0, idx);
-                    }
-                    element
-                })
-                .collect(),
+            CanvasElementOrGroup::Group(group) => {
+                let group_interp_id = group.interp_id;
+                group
+                    .flatten()
+                    .into_iter()
+                    .enumerate()
+                    .map({
+                        move |(idx, mut element)| {
+                            // elements inherit their interp ID from the group they are in
+                            if let Some(group_interp_id) = group_interp_id {
+                                if let Some(element_interp_id) = element.interp_id {
+                                    panic!(
+                                        "Multiple interp ID definitions: `{:?}` and `{:?}`",
+                                        element_interp_id.id, group_interp_id
+                                    );
+                                }
+                                element.interp_id = Some(InterpId {
+                                    id: group_interp_id,
+                                    draw_order_idx: vec![],
+                                });
+                            }
+                            // set the interp id draw idx according to the position in the group
+                            if let Some(interp_id) = element.interp_id.as_mut() {
+                                interp_id.draw_order_idx.insert(0, idx);
+                            }
+                            element
+                        }
+                    })
+                    .collect()
+            }
         }
     }
 }
 
+#[derive(Clone)]
 enum CanvasElement {
     Circle(CanvasCircle),
     Line(CanvasLine),
 }
 
+#[derive(Clone)]
 pub struct CanvasCircle {
     center: (f64, f64),
     radius: f64,
@@ -1466,6 +1491,7 @@ impl CanvasCircle {
     }
 }
 
+#[derive(Clone)]
 pub struct CanvasLine {
     start: (f64, f64),
     end: (f64, f64),
@@ -1505,6 +1531,7 @@ impl CanvasLine {
     }
 }
 
+#[derive(Clone)]
 struct CanvasElementWithInterpId {
     element: CanvasElement,
     interp_id: Option<InterpId>,
@@ -1602,7 +1629,101 @@ impl Canvas {
 
         println!("TODO");
         SlideElements {
-            temporal: vec![],
+            temporal: {
+                // list of all the temporal elements at a given time by ID
+                // these lists at different times are required to be compatible, meaning
+                //  - they have the same length
+                //  - elements at the same key have the same type
+                // this allows us to glue them toegher through time to construct a temporal element
+                let at_t = Rc::new({
+                    let build_instant = self.build_instant.clone();
+                    move |t: f64| {
+                        let mut elements_by_id = HashMap::new();
+                        for (id, elem) in
+                            (build_instant)(t)
+                                .flatten()
+                                .into_iter()
+                                .filter_map(|element| {
+                                    element
+                                        .interp_id
+                                        .clone()
+                                        .map(|interp_id| (interp_id, element))
+                                })
+                        {
+                            if elements_by_id.insert(id.clone(), elem).is_some() {
+                                panic!("Interp ID `{:?}` used by multiple elements", id);
+                            }
+                        }
+                        elements_by_id
+                    }
+                });
+
+                // use t=0 as the somewhat arbitrary template for the thing all other times should match
+                let zero_instant = at_t(0.0);
+
+                let keys = zero_instant.keys().cloned().collect::<Vec<_>>();
+                let at_t_check_matches = Rc::new(move |t: f64| {
+                    let at_t = at_t(t);
+                    if at_t.keys().collect::<HashSet<_>>() != keys.iter().collect::<HashSet<_>>() {
+                        panic!("Different temporal elements returned at different times");
+                    }
+                    at_t
+                });
+
+                zero_instant
+                    .into_iter()
+                    .map(|(id, elem)| match elem.element {
+                        CanvasElement::Circle(_) => {
+                            let get_circle_t = Rc::new({
+                                let id = id.clone();
+                                let at_t = at_t_check_matches.clone();
+                                move |t| match at_t(t).get(&id).unwrap().element.clone() {
+                                    CanvasElement::Circle(circle) => circle,
+                                    _ => {
+                                        panic!("Temporal element changed type")
+                                    }
+                                }
+                            });
+
+                            TemporalSlideElement::Circle {
+                                center: Timeline::from_fn({
+                                    let slide_embedding = slide_embedding.clone();
+                                    let get_circle_t = get_circle_t.clone();
+                                    move |t| slide_embedding.map_point(get_circle_t(t).center)
+                                }),
+                                radius: Timeline::from_fn({
+                                    let slide_embedding = slide_embedding.clone();
+                                    let get_circle_t = get_circle_t.clone();
+                                    move |t| slide_embedding.map_length(get_circle_t(t).radius)
+                                }),
+                                options: TemporalShapeOptions {
+                                    interp: TemporalInterpOptions {
+                                        interp_from_id: Some(id.clone()),
+                                        interp_to_id: Some(id.clone()),
+                                        interp_from_type: None,
+                                        interp_to_type: None,
+                                    },
+                                    visuals: ShapeVisualOptions {
+                                        fill_rgba: ColourRgba {
+                                            r: 1.0,
+                                            g: 0.5,
+                                            b: 0.0,
+                                            a: 1.0,
+                                        },
+                                    },
+                                    bounding_rect_sample_times: vec![6.0],
+                                },
+                            }
+                        }
+                        CanvasElement::Line(line) => TemporalSlideElement::Line {
+                            start: todo!(),
+                            end: todo!(),
+                            radius: todo!(),
+                            options: todo!(),
+                        },
+                    })
+                    .collect()
+            },
             instantaneous: Timeline::from_fn({
                 let build_instant = self.build_instant.clone();
                 move |t| {
@@ -1620,31 +1741,6 @@ impl Canvas {
                         }
                     }
                     elements
-
-                    /*
-                    vec![InstantaneousSlideElement::Shape {
-                        shape: ShapeSpec::Circle {
-                            center: Pos2::<W, H>::from_units(
-                                0.5 * SCREEN_UNITS,
-                                0.5 * SCREEN_UNITS,
-                            )
-                            .pixels(),
-                            radius: Length::<W, H>::from_units(0.1 * SCREEN_UNITS).pixels(),
-                        },
-                        visuals: ShapeVisualOptions {
-                            fill_rgba: ColourRgba {
-                                r: 1.0,
-                                g: 1.0,
-                                b: 0.0,
-                                a: 1.0,
-                            },
-                        },
-                        interp: InstantaneousInterpOptions {
-                            interp_in_type: None,
-                            interp_out_type: None,
-                        },
-                    }]
-                    */
                 }
             }),
         }
@@ -1672,14 +1768,14 @@ impl Picture {
         let mut options = TemporalShapeOptions::default();
         if let Some(interp_draw_ordering) = &mut self.current_interp_from_draw_ordering {
             options.interp.interp_from_id = Some(InterpId {
-                user: interp_draw_ordering.group,
+                id: interp_draw_ordering.group,
                 draw_order_idx: vec![interp_draw_ordering.idx],
             });
             interp_draw_ordering.idx += 1;
         }
         if let Some(interp_draw_ordering) = &mut self.current_interp_to_draw_ordering {
             options.interp.interp_to_id = Some(InterpId {
-                user: interp_draw_ordering.group,
+                id: interp_draw_ordering.group,
                 draw_order_idx: vec![interp_draw_ordering.idx],
             });
             interp_draw_ordering.idx += 1;
