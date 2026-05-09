@@ -92,12 +92,14 @@ impl InterpType {
     }
 }
 
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+/*
+An ID associated with temporal elements used to match up elements between slides
+*/
+#[derive(Default, Debug, Clone, PartialEq, Eq, Hash)]
 struct InterpId {
-    enabled: bool,
-    user: Option<i64>,
-    draw_order_group: Option<i64>,
-    draw_order_idx: Option<usize>,
+    user: i64,
+    // a list of indicies describing the path of the element in terms of its position in nested draw groups
+    draw_order_idx: Vec<usize>,
 }
 
 /*
@@ -111,21 +113,25 @@ Options for how an object on a slide should be interpolated from the previous sl
  - if both are Some, then an interpolated interpolation is used
 */
 #[derive(Debug, Clone, Default)]
-struct InterpOptions {
-    interp_from_id: InterpId,
-    interp_to_id: InterpId,
+struct TemporalInterpOptions {
+    interp_from_id: Option<InterpId>,
+    interp_to_id: Option<InterpId>,
     interp_from_type: Option<InterpType>,
     interp_to_type: Option<InterpType>,
 }
-impl InterpOptions {
+impl TemporalInterpOptions {
     fn interp_from_id(&mut self, id: i64) -> &mut Self {
-        self.interp_from_id.user = Some(id);
-        self.interp_from_id.enabled = true;
+        self.interp_from_id = Some(InterpId {
+            user: id,
+            draw_order_idx: vec![],
+        });
         self
     }
     fn interp_to_id(&mut self, id: i64) -> &mut Self {
-        self.interp_to_id.user = Some(id);
-        self.interp_to_id.enabled = true;
+        self.interp_to_id = Some(InterpId {
+            user: id,
+            draw_order_idx: vec![],
+        });
         self
     }
     fn interp_id(&mut self, id: i64) -> &mut Self {
@@ -171,13 +177,13 @@ impl Interpable for ShapeVisualOptions {
 }
 
 #[derive(Debug, Clone)]
-pub struct ShapeOptions {
-    interp: InterpOptions,
+pub struct TemporalShapeOptions {
+    interp: TemporalInterpOptions,
     visuals: ShapeVisualOptions,
     bounding_rect_sample_times: Vec<f64>,
 }
 
-impl Default for ShapeOptions {
+impl Default for TemporalShapeOptions {
     fn default() -> Self {
         Self {
             interp: Default::default(),
@@ -198,7 +204,7 @@ impl Default for ShapeOptions {
     }
 }
 
-impl ShapeOptions {
+impl TemporalShapeOptions {
     pub fn interp_from_id(&mut self, id: i64) -> &mut Self {
         self.interp.interp_from_id(id);
         self
@@ -267,33 +273,73 @@ impl<V: Clone> Timeline<V> {
 }
 
 /*
-An element on the slide with its positional information worked out
+A thing to be drawn on the slide with temporal continuity
+These are the elements it's possible to interpolate between slides
+This is in contrast to the instantaneous slide elements
 */
 #[derive(Clone)]
-enum SlideElement<const W: u32, const H: u32> {
+enum TemporalSlideElement<const W: u32, const H: u32> {
     Circle {
         center: Timeline<Pos2<W, H>>,
         radius: Timeline<Length<W, H>>,
-        options: ShapeOptions,
+        options: TemporalShapeOptions,
     },
     Line {
         start: Timeline<Pos2<W, H>>,
         end: Timeline<Pos2<W, H>>,
         radius: Timeline<Length<W, H>>,
-        options: ShapeOptions,
+        options: TemporalShapeOptions,
     },
     Shape {
         shape: Timeline<ShapeSpec>, // in pixel coords
-        options: ShapeOptions,
+        options: TemporalShapeOptions,
     },
 }
 
-impl<const W: u32, const H: u32> SlideElement<W, H> {
-    fn interp_options(&self) -> &InterpOptions {
+impl<const W: u32, const H: u32> TemporalSlideElement<W, H> {
+    fn interp_options(&self) -> &TemporalInterpOptions {
         match self {
             Self::Circle { options, .. } => &options.interp,
             Self::Line { options, .. } => &options.interp,
             Self::Shape { options, .. } => &options.interp,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+struct InstantaneousInterpOptions {
+    interp_in_type: Option<InterpType>,
+    interp_out_type: Option<InterpType>,
+}
+impl InstantaneousInterpOptions {
+    fn interp_in_type(&mut self, interp_type: InterpType) -> &mut Self {
+        self.interp_in_type = Some(interp_type);
+        self
+    }
+
+    fn interp_out_type(&mut self, interp_type: InterpType) -> &mut Self {
+        self.interp_out_type = Some(interp_type);
+        self
+    }
+}
+
+/*
+A thing to be drawn on the slide without temporal continuity i.e. it only exist for a singular frame
+This is in contrast to the temporal slide elements which exist through time
+*/
+#[derive(Clone)]
+enum InstantaneousSlideElement<const W: u32, const H: u32> {
+    Shape {
+        shape: ShapeSpec, // in pixel coords
+        visuals: ShapeVisualOptions,
+        interp: InstantaneousInterpOptions,
+    },
+}
+
+impl<const W: u32, const H: u32> InstantaneousSlideElement<W, H> {
+    fn interp_options(&self) -> &InstantaneousInterpOptions {
+        match self {
+            InstantaneousSlideElement::Shape { interp, .. } => interp,
         }
     }
 }
@@ -308,15 +354,43 @@ struct SlideshowStateTimingOptions {
     duration: Option<f64>,
 }
 
+struct SlideElements<const W: u32, const H: u32> {
+    temporal: Vec<TemporalSlideElement<W, H>>,
+    instantaneous: Timeline<Vec<InstantaneousSlideElement<W, H>>>,
+}
+
+impl<const W: u32, const H: u32> SlideElements<W, H> {
+    fn new() -> Self {
+        Self {
+            temporal: vec![],
+            instantaneous: Timeline::Constant(vec![]),
+        }
+    }
+
+    fn append(&mut self, other: &mut Self) {
+        self.temporal.append(&mut other.temporal);
+        self.instantaneous = Timeline::from_fn({
+            let self_instantaneous = self.instantaneous.clone();
+            let other_instantaneous = other.instantaneous.clone();
+            move |t| {
+                let mut instantaneous = self_instantaneous.at_time(t);
+                instantaneous.append(&mut other_instantaneous.at_time(t));
+                instantaneous
+            }
+        })
+    }
+}
+
 /*
 A slide and its elements
 */
 pub struct Slide<const W: u32, const H: u32> {
     timing: SlideshowStateTimingOptions,
-    elements: Vec<SlideElement<W, H>>,
+    elements: SlideElements<W, H>,
 }
+
 impl<const W: u32, const H: u32> Slide<W, H> {
-    fn new(elements: Vec<SlideElement<W, H>>) -> Self {
+    fn new(elements: SlideElements<W, H>) -> Self {
         Self {
             timing: SlideshowStateTimingOptions {
                 start_at: None,
@@ -326,14 +400,17 @@ impl<const W: u32, const H: u32> Slide<W, H> {
             elements,
         }
     }
+
     pub fn start_at(&mut self, start_at: f64) -> &mut Self {
         self.timing.start_at = Some(start_at);
         self
     }
+
     pub fn end_at(&mut self, end_at: f64) -> &mut Self {
         self.timing.end_at = Some(end_at);
         self
     }
+
     pub fn duration(&mut self, duration: f64) -> &mut Self {
         self.timing.duration = Some(duration);
         self
@@ -409,9 +486,9 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
     }
 
     /// Add a slide
-    pub fn slide(&mut self, f: impl FnOnce(&mut SlideRegionBuilder<W, H>)) -> &mut Slide<W, H> {
+    pub fn slide(&mut self, build: impl FnOnce(&mut SlideRegionBuilder<W, H>)) -> &mut Slide<W, H> {
         let mut slide_builder = SlideRegionBuilder::new(Rect::fullscreen());
-        f(&mut slide_builder);
+        build(&mut slide_builder);
         self.states
             .push(SlideshowState::Slide(Slide::new(slide_builder.finish())));
         match self.states.last_mut().unwrap() {
@@ -430,6 +507,7 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
         }
     }
 
+    /// Convert this slideshow into a video
     pub fn video(mut self, fps: f64) -> VideoSpec {
         // fiddle with self.states so that it
         // - has only slides at even indexes
@@ -549,8 +627,10 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
         // generate the animation objects spanning multiple frames if interp ids match
         #[derive(Clone)]
         struct MultiSlideElement<const W: u32, const H: u32> {
-            current_to_id: InterpId,
-            elements: Vec<Option<SlideElement<W, H>>>,
+            current_to_id: Option<InterpId>,
+            // one entry for each slide
+            // None if the element is not present on the slide, otherwise Some
+            elements: Vec<Option<TemporalSlideElement<W, H>>>,
         }
         let multislide_elements = {
             let mut finished_multislide_elements: Vec<MultiSlideElement<W, H>> = vec![];
@@ -559,11 +639,11 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                 if let SlideshowState::Slide(slide) = &self.states[2 * i] {
                     let mut matching_pairs = vec![];
                     for multislide_element in &active_multislide_elements {
-                        for element in &slide.elements {
+                        for element in &slide.elements.temporal {
                             let interp = element.interp_options();
-                            if interp.interp_from_id.enabled
-                                && multislide_element.current_to_id.enabled
-                                && interp.interp_from_id == multislide_element.current_to_id
+                            if let (Some(from), Some(to)) =
+                                (&interp.interp_from_id, &multislide_element.current_to_id)
+                                && from == to
                             {
                                 matching_pairs.push((multislide_element, element));
                             }
@@ -576,7 +656,7 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
 
                     let mut next_active_multislide_elements = vec![];
 
-                    for element in &slide.elements {
+                    for element in &slide.elements.temporal {
                         let mut matches = vec![];
                         for (matched_multislide_element, matched_element) in &matching_pairs {
                             if std::ptr::eq(element, *matched_element) {
@@ -586,7 +666,7 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                         match matches.len() {
                             0 => {
                                 next_active_multislide_elements.push(MultiSlideElement {
-                                    current_to_id: element.interp_options().interp_to_id,
+                                    current_to_id: element.interp_options().interp_to_id.clone(),
                                     elements: vec![None; i]
                                         .into_iter()
                                         .chain(vec![Some(element.clone())])
@@ -612,7 +692,7 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                         match matches.len() {
                             0 => {
                                 finished_multislide_elements.push(MultiSlideElement {
-                                    current_to_id: InterpId::default(),
+                                    current_to_id: None,
                                     elements: multislide_element
                                         .elements
                                         .clone()
@@ -623,7 +703,7 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                             }
                             1 => {
                                 next_active_multislide_elements.push(MultiSlideElement {
-                                    current_to_id: matches[0].interp_options().interp_to_id,
+                                    current_to_id: matches[0].interp_options().interp_to_id.clone(),
                                     elements: multislide_element
                                         .elements
                                         .clone()
@@ -665,7 +745,7 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                 (state_idx, *state_time, state_frac)
             };
 
-        struct MultiSlideElementInstant<const W: u32, const H: u32> {
+        struct ElementInstant<const W: u32, const H: u32> {
             shape: ShapeSpec,
             fill: ColourRgba,
         }
@@ -674,7 +754,7 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
             fn get_at_instant(
                 &self,
                 (state_idx, state_t, state_frac): (usize, f64, OrderedFloat<f64>),
-            ) -> Option<MultiSlideElementInstant<W, H>> {
+            ) -> Option<ElementInstant<W, H>> {
                 if state_idx % 2 == 0 {
                     // on a slide
                     let slide_idx = state_idx / 2;
@@ -682,23 +762,23 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                     self.elements[slide_idx]
                         .as_ref()
                         .map(|element| match element {
-                            SlideElement::Circle {
+                            TemporalSlideElement::Circle {
                                 center,
                                 radius,
                                 options,
-                            } => MultiSlideElementInstant {
+                            } => ElementInstant {
                                 shape: ShapeSpec::Circle {
                                     center: center.at_time(state_t).pixels(),
                                     radius: radius.at_time(state_t).pixels(),
                                 },
                                 fill: options.visuals.fill_rgba,
                             },
-                            SlideElement::Line {
+                            TemporalSlideElement::Line {
                                 start,
                                 end,
                                 radius,
                                 options,
-                            } => MultiSlideElementInstant {
+                            } => ElementInstant {
                                 shape: ShapeSpec::Line {
                                     point1: start.at_time(state_t).pixels(),
                                     point2: end.at_time(state_t).pixels(),
@@ -706,7 +786,7 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                 },
                                 fill: options.visuals.fill_rgba,
                             },
-                            SlideElement::Shape { shape, options } => MultiSlideElementInstant {
+                            TemporalSlideElement::Shape { shape, options } => ElementInstant {
                                 shape: shape.at_time(state_t).clone(),
                                 fill: options.visuals.fill_rgba,
                             },
@@ -727,13 +807,13 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                 .modify_interp(*state_frac);
 
                             Some(match to_element {
-                                SlideElement::Circle {
+                                TemporalSlideElement::Circle {
                                     center,
                                     radius,
                                     options,
                                 } => {
                                     let ColourRgba { r, g, b, a } = options.visuals.fill_rgba;
-                                    MultiSlideElementInstant {
+                                    ElementInstant {
                                         shape: ShapeSpec::Circle {
                                             center: center.at_time(state_t).pixels(),
                                             radius: radius.at_time(state_t).pixels(),
@@ -746,14 +826,14 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                         },
                                     }
                                 }
-                                SlideElement::Line {
+                                TemporalSlideElement::Line {
                                     start,
                                     end,
                                     radius,
                                     options,
                                 } => {
                                     let ColourRgba { r, g, b, a } = options.visuals.fill_rgba;
-                                    MultiSlideElementInstant {
+                                    ElementInstant {
                                         shape: ShapeSpec::Line {
                                             point1: start.at_time(state_t).pixels(),
                                             point2: end.at_time(state_t).pixels(),
@@ -767,9 +847,9 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                         },
                                     }
                                 }
-                                SlideElement::Shape { shape, options } => {
+                                TemporalSlideElement::Shape { shape, options } => {
                                     let ColourRgba { r, g, b, a } = options.visuals.fill_rgba;
-                                    MultiSlideElementInstant {
+                                    ElementInstant {
                                         shape: shape.at_time(state_t).clone(),
                                         fill: ColourRgba {
                                             r,
@@ -789,13 +869,13 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                 .modify_interp(*state_frac);
 
                             Some(match from_element {
-                                SlideElement::Circle {
+                                TemporalSlideElement::Circle {
                                     center,
                                     radius,
                                     options,
                                 } => {
                                     let ColourRgba { r, g, b, a } = options.visuals.fill_rgba;
-                                    MultiSlideElementInstant {
+                                    ElementInstant {
                                         shape: ShapeSpec::Circle {
                                             center: center.at_time(state_t).pixels(),
                                             radius: radius.at_time(state_t).pixels(),
@@ -808,14 +888,14 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                         },
                                     }
                                 }
-                                SlideElement::Line {
+                                TemporalSlideElement::Line {
                                     start,
                                     end,
                                     radius,
                                     options,
                                 } => {
                                     let ColourRgba { r, g, b, a } = options.visuals.fill_rgba;
-                                    MultiSlideElementInstant {
+                                    ElementInstant {
                                         shape: ShapeSpec::Line {
                                             point1: start.at_time(state_t).pixels(),
                                             point2: end.at_time(state_t).pixels(),
@@ -829,9 +909,9 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                         },
                                     }
                                 }
-                                SlideElement::Shape { shape, options } => {
+                                TemporalSlideElement::Shape { shape, options } => {
                                     let ColourRgba { r, g, b, a } = options.visuals.fill_rgba;
-                                    MultiSlideElementInstant {
+                                    ElementInstant {
                                         shape: shape.at_time(state_t).clone(),
                                         fill: ColourRgba {
                                             r,
@@ -860,12 +940,12 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
 
                             Some(match (&from_element, &to_element) {
                                 (
-                                    SlideElement::Circle {
+                                    TemporalSlideElement::Circle {
                                         center: from_center,
                                         radius: from_radius,
                                         options: from_options,
                                     },
-                                    SlideElement::Circle {
+                                    TemporalSlideElement::Circle {
                                         center: to_center,
                                         radius: to_radius,
                                         options: to_options,
@@ -876,7 +956,7 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                         &to_options.visuals,
                                         interp_frac,
                                     );
-                                    MultiSlideElementInstant {
+                                    ElementInstant {
                                         shape: ShapeSpec::Circle {
                                             center: Pos2::interp(
                                                 &from_center.at_time(state_t),
@@ -895,12 +975,12 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                     }
                                 }
                                 (
-                                    SlideElement::Circle {
+                                    TemporalSlideElement::Circle {
                                         center: from_center,
                                         radius: from_radius,
                                         options: from_options,
                                     },
-                                    SlideElement::Line {
+                                    TemporalSlideElement::Line {
                                         start: to_start,
                                         end: to_end,
                                         radius: to_radius,
@@ -912,7 +992,7 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                         &to_options.visuals,
                                         interp_frac,
                                     );
-                                    MultiSlideElementInstant {
+                                    ElementInstant {
                                         shape: ShapeSpec::Line {
                                             point1: Pos2::interp(
                                                 &from_center.at_time(state_t),
@@ -937,13 +1017,13 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                     }
                                 }
                                 (
-                                    SlideElement::Line {
+                                    TemporalSlideElement::Line {
                                         start: from_start,
                                         end: from_end,
                                         radius: from_radius,
                                         options: from_options,
                                     },
-                                    SlideElement::Circle {
+                                    TemporalSlideElement::Circle {
                                         center: to_center,
                                         radius: to_radius,
                                         options: to_options,
@@ -954,7 +1034,7 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                         &to_options.visuals,
                                         interp_frac,
                                     );
-                                    MultiSlideElementInstant {
+                                    ElementInstant {
                                         shape: ShapeSpec::Line {
                                             point1: Pos2::interp(
                                                 &from_start.at_time(state_t),
@@ -979,13 +1059,13 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                     }
                                 }
                                 (
-                                    SlideElement::Line {
+                                    TemporalSlideElement::Line {
                                         start: from_start,
                                         end: from_end,
                                         radius: from_radius,
                                         options: from_options,
                                     },
-                                    SlideElement::Line {
+                                    TemporalSlideElement::Line {
                                         start: to_start,
                                         end: to_end,
                                         radius: to_radius,
@@ -997,7 +1077,7 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                         &to_options.visuals,
                                         interp_frac,
                                     );
-                                    MultiSlideElementInstant {
+                                    ElementInstant {
                                         shape: ShapeSpec::Line {
                                             point1: Pos2::interp(
                                                 &from_start.at_time(state_t),
@@ -1042,30 +1122,124 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
 
             let mut layers = vec![];
 
-            let mut multislide_instant_elements = multislide_elements
+            let mut instant_elements = multislide_elements
                 .iter()
                 .filter_map(|multislide_element| multislide_element.get_at_instant(state_pos))
+                .chain({
+                    let mut elements = vec![];
+                    let (state_idx, state_t, state_frac) = state_pos;
+
+                    if state_idx % 2 == 0 {
+                        // on a slide
+                        let slide_t = state_t;
+                        match &self.states[state_idx] {
+                            SlideshowState::Slide(slide) => {
+                                for element in slide.elements.instantaneous.at_time(slide_t) {
+                                    match element {
+                                        InstantaneousSlideElement::Shape {
+                                            shape, visuals, ..
+                                        } => {
+                                            elements.push(ElementInstant {
+                                                shape,
+                                                fill: visuals.fill_rgba,
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                            _ => unreachable!(),
+                        }
+                    } else {
+                        // on an interp
+                        let from_slide_idx = state_idx - 1;
+                        #[allow(clippy::manual_div_ceil)]
+                        let to_slide_idx = state_idx + 1;
+
+                        let to_slide_t = *(t - timings[to_slide_idx]);
+                        match &self.states[to_slide_idx] {
+                            SlideshowState::Slide(to_slide) => {
+                                for element in to_slide.elements.instantaneous.at_time(to_slide_t) {
+                                    let interp_frac = element
+                                        .interp_options()
+                                        .interp_out_type
+                                        .unwrap_or_default()
+                                        .modify_interp(*state_frac);
+                                    match element {
+                                        InstantaneousSlideElement::Shape {
+                                            shape, visuals, ..
+                                        } => {
+                                            let ColourRgba { r, g, b, a } = visuals.fill_rgba;
+                                            elements.push(ElementInstant {
+                                                shape,
+                                                fill: ColourRgba {
+                                                    r,
+                                                    g,
+                                                    b,
+                                                    a: interp_frac * a,
+                                                },
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                            _ => unreachable!(),
+                        }
+
+                        let from_slide_t = *(t - timings[from_slide_idx]);
+                        match &self.states[from_slide_idx] {
+                            SlideshowState::Slide(from_slide) => {
+                                for element in
+                                    from_slide.elements.instantaneous.at_time(from_slide_t)
+                                {
+                                    let interp_frac = element
+                                        .interp_options()
+                                        .interp_in_type
+                                        .unwrap_or_default()
+                                        .modify_interp(*state_frac);
+                                    match element {
+                                        InstantaneousSlideElement::Shape {
+                                            shape, visuals, ..
+                                        } => {
+                                            let ColourRgba { r, g, b, a } = visuals.fill_rgba;
+                                            elements.push(ElementInstant {
+                                                shape,
+                                                fill: ColourRgba {
+                                                    r,
+                                                    g,
+                                                    b,
+                                                    a: (1.0 - interp_frac) * a,
+                                                },
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                            _ => unreachable!(),
+                        }
+                    }
+                    elements
+                })
                 .collect::<Vec<_>>();
 
             // TODO: custom options for how to sort
             // for now, sort by lightness
-            multislide_instant_elements.sort_by_cached_key(|multislide_instant_element| {
-                let ColourRgba { r, g, b, a: _ } = multislide_instant_element.fill;
+            instant_elements.sort_by_cached_key(|instant_element| {
+                let ColourRgba { r, g, b, a: _ } = instant_element.fill;
                 OrderedFloat(0.299 * r + 0.587 * g + 0.114 * b)
             });
 
-            for multislide_instant_element in multislide_instant_elements {
-                if let Some(br) = multislide_instant_element.shape.shape().bounding_rect() {
+            for instant_element in instant_elements {
+                if let Some(br) = instant_element.shape.shape().bounding_rect() {
                     let min = br.min().x_y();
                     let min = (min.0.floor() as u32, min.1.floor() as u32);
                     let max = br.max().x_y();
                     let max = (max.0.ceil() as u32, max.1.ceil() as u32);
                     let width = max.0 - min.0;
                     let height = max.1 - min.1;
-                    let ColourRgba { r, g, b, a } = multislide_instant_element.fill;
+                    let ColourRgba { r, g, b, a } = instant_element.fill;
                     layers.push(Layer {
                         top_left: (min.0 as f64, min.1 as f64),
-                        image: multislide_instant_element
+                        image: instant_element
                             .shape
                             .translate(-(min.0 as f64), -(min.1 as f64))
                             .image(
@@ -1109,13 +1283,27 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
     }
 }
 
+enum SlideRegionElement {
+    Picture(Picture),
+    Canvas(Canvas),
+}
+
+impl SlideRegionElement {
+    fn finish<const W: u32, const H: u32>(self, rect: &Rect<W, H>) -> SlideElements<W, H> {
+        match self {
+            SlideRegionElement::Picture(picture) => picture.finish(rect),
+            SlideRegionElement::Canvas(canvas) => canvas.finish(rect),
+        }
+    }
+}
+
 /*
 For placing visual elements on a region of the slide
 */
 pub struct SlideRegionBuilder<const W: u32, const H: u32> {
     rect: Rect<W, H>,
     subregions: Vec<SlideRegionBuilder<W, H>>,
-    pictures: Vec<Picture<W, H>>,
+    elements: Vec<SlideRegionElement>,
 }
 
 impl<const W: u32, const H: u32> SlideRegionBuilder<W, H> {
@@ -1123,7 +1311,7 @@ impl<const W: u32, const H: u32> SlideRegionBuilder<W, H> {
         Self {
             rect,
             subregions: vec![],
-            pictures: vec![],
+            elements: vec![],
         }
     }
 
@@ -1161,29 +1349,305 @@ impl<const W: u32, const H: u32> SlideRegionBuilder<W, H> {
         self.subregions.last_mut().unwrap()
     }
 
-    pub fn picture(&mut self) -> &mut Picture<W, H> {
-        self.pictures.push(Picture {
+    pub fn canvas(
+        &mut self,
+        build: impl Fn(&mut CanvasInstantGroup, f64) + 'static,
+    ) -> &mut Canvas {
+        self.elements
+            .push(SlideRegionElement::Canvas(Canvas::new(move |t| {
+                let mut canvas_instant = CanvasInstantGroup::new();
+                build(&mut canvas_instant, t);
+                canvas_instant
+            })));
+        match self.elements.last_mut().unwrap() {
+            SlideRegionElement::Canvas(element) => element,
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn picture(&mut self) -> &mut Picture {
+        self.elements.push(SlideRegionElement::Picture(Picture {
             elements: vec![],
             current_interp_from_draw_ordering: None,
             current_interp_to_draw_ordering: None,
-        });
-        self.pictures.last_mut().unwrap()
+        }));
+        match self.elements.last_mut().unwrap() {
+            SlideRegionElement::Picture(element) => element,
+            _ => unreachable!(),
+        }
     }
 
-    fn finish(self) -> Vec<SlideElement<W, H>> {
-        let mut elements = vec![];
+    fn finish(self) -> SlideElements<W, H> {
+        let mut elements = SlideElements::new();
         for subregion in self.subregions {
             elements.append(&mut subregion.finish());
         }
-        for picture in self.pictures {
-            if let Some(bounding_rect) = picture.bounding_rect() {
-                let slide_embedding = SlideEmbedding::fit_within(self.rect, bounding_rect);
-                for element in picture.elements {
-                    elements.push(element.slide_embed(&slide_embedding));
-                }
-            }
+        for element in self.elements {
+            elements.append(&mut element.finish(&self.rect));
         }
         elements
+    }
+}
+
+enum CanvasElementOrGroup {
+    Element(CanvasElement),
+    Group(CanvasInstantGroup),
+}
+impl CanvasElementOrGroup {
+    fn flatten(self) -> Vec<CanvasElementWithInterpId> {
+        match self {
+            CanvasElementOrGroup::Element(element) => {
+                let interp_id = match &element {
+                    CanvasElement::Circle(circle) => circle.interp_id.map(|id| InterpId {
+                        user: id,
+                        draw_order_idx: vec![],
+                    }),
+                    CanvasElement::Line(line) => line.interp_id.map(|id| InterpId {
+                        user: id,
+                        draw_order_idx: vec![],
+                    }),
+                };
+                vec![CanvasElementWithInterpId { element, interp_id }]
+            }
+            CanvasElementOrGroup::Group(group) => group
+                .flatten()
+                .into_iter()
+                .enumerate()
+                .map(|(idx, mut element)| {
+                    if let Some(interp_id) = element.interp_id.as_mut() {
+                        interp_id.draw_order_idx.insert(0, idx);
+                    }
+                    element
+                })
+                .collect(),
+        }
+    }
+}
+
+enum CanvasElement {
+    Circle(CanvasCircle),
+    Line(CanvasLine),
+}
+
+pub struct CanvasCircle {
+    center: (f64, f64),
+    radius: f64,
+    interp_id: Option<i64>,
+}
+
+impl CanvasCircle {
+    fn slide_embed<const W: u32, const H: u32>(
+        self,
+        embedding: &SlideEmbedding<W, H>,
+    ) -> InstantaneousSlideElement<W, H> {
+        InstantaneousSlideElement::Shape {
+            shape: ShapeSpec::Circle {
+                center: embedding.map_point(self.center).pixels(),
+                radius: embedding.map_length(self.radius).pixels(),
+            },
+            visuals: ShapeVisualOptions {
+                fill_rgba: ColourRgba {
+                    r: 1.0,
+                    g: 1.0,
+                    b: 0.0,
+                    a: 1.0,
+                },
+            },
+            interp: InstantaneousInterpOptions {
+                interp_in_type: None,
+                interp_out_type: None,
+            },
+        }
+    }
+
+    pub fn interp_id(&mut self, id: i64) -> &mut Self {
+        self.interp_id = Some(id);
+        self
+    }
+}
+
+pub struct CanvasLine {
+    start: (f64, f64),
+    end: (f64, f64),
+    radius: f64,
+    interp_id: Option<i64>,
+}
+
+impl CanvasLine {
+    fn slide_embed<const W: u32, const H: u32>(
+        self,
+        embedding: &SlideEmbedding<W, H>,
+    ) -> InstantaneousSlideElement<W, H> {
+        InstantaneousSlideElement::Shape {
+            shape: ShapeSpec::Line {
+                point1: embedding.map_point(self.start).pixels(),
+                point2: embedding.map_point(self.end).pixels(),
+                radius: embedding.map_length(self.radius).pixels(),
+            },
+            visuals: ShapeVisualOptions {
+                fill_rgba: ColourRgba {
+                    r: 1.0,
+                    g: 1.0,
+                    b: 0.0,
+                    a: 1.0,
+                },
+            },
+            interp: InstantaneousInterpOptions {
+                interp_in_type: None,
+                interp_out_type: None,
+            },
+        }
+    }
+
+    pub fn interp_id(&mut self, id: i64) -> &mut Self {
+        self.interp_id = Some(id);
+        self
+    }
+}
+
+struct CanvasElementWithInterpId {
+    element: CanvasElement,
+    interp_id: Option<InterpId>,
+}
+
+pub struct CanvasInstantGroup {
+    interp_id: Option<i64>,
+    elements: Vec<CanvasElementOrGroup>,
+}
+
+impl CanvasInstantGroup {
+    fn new() -> Self {
+        Self {
+            elements: vec![],
+            interp_id: None,
+        }
+    }
+
+    pub fn interp_id(&mut self, id: i64) -> &mut Self {
+        self.interp_id = Some(id);
+        self
+    }
+
+    pub fn group(&mut self) -> &mut CanvasInstantGroup {
+        self.elements
+            .push(CanvasElementOrGroup::Group(CanvasInstantGroup::new()));
+        match self.elements.last_mut().unwrap() {
+            CanvasElementOrGroup::Group(group) => group,
+            _ => {
+                unreachable!()
+            }
+        }
+    }
+
+    pub fn circle(&mut self, center: (f64, f64), radius: f64) -> &mut CanvasCircle {
+        self.elements
+            .push(CanvasElementOrGroup::Element(CanvasElement::Circle(
+                CanvasCircle {
+                    center,
+                    radius,
+                    interp_id: None,
+                },
+            )));
+        if let CanvasElementOrGroup::Element(element) = self.elements.last_mut().unwrap()
+            && let CanvasElement::Circle(element) = element
+        {
+            element
+        } else {
+            unreachable!()
+        }
+    }
+
+    pub fn line(&mut self, start: (f64, f64), end: (f64, f64), radius: f64) -> &mut CanvasLine {
+        self.elements
+            .push(CanvasElementOrGroup::Element(CanvasElement::Line(
+                CanvasLine {
+                    start,
+                    end,
+                    radius,
+                    interp_id: None,
+                },
+            )));
+        if let CanvasElementOrGroup::Element(element) = self.elements.last_mut().unwrap()
+            && let CanvasElement::Line(element) = element
+        {
+            element
+        } else {
+            unreachable!()
+        }
+    }
+
+    fn flatten(self) -> Vec<CanvasElementWithInterpId> {
+        let mut elements = vec![];
+        for element in self.elements {
+            elements.append(&mut element.flatten());
+        }
+        elements
+    }
+}
+
+pub struct Canvas {
+    build_instant: Rc<dyn Fn(f64) -> CanvasInstantGroup>,
+}
+
+impl Canvas {
+    fn new(build_instant: impl Fn(f64) -> CanvasInstantGroup + 'static) -> Self {
+        Self {
+            build_instant: Rc::new(build_instant),
+        }
+    }
+
+    fn finish<const W: u32, const H: u32>(self, rect: &Rect<W, H>) -> SlideElements<W, H> {
+        let bounding_rect = BoundingRect::new(-6.0, 6.0, -6.0, 6.0);
+        let slide_embedding = SlideEmbedding::fit_within(rect, bounding_rect);
+
+        println!("TODO");
+        SlideElements {
+            temporal: vec![],
+            instantaneous: Timeline::from_fn({
+                let build_instant = self.build_instant.clone();
+                move |t| {
+                    let mut elements = vec![];
+                    for element in (build_instant)(t).flatten() {
+                        if element.interp_id.is_none() {
+                            match element.element {
+                                CanvasElement::Circle(canvas_circle) => {
+                                    elements.push(canvas_circle.slide_embed(&slide_embedding));
+                                }
+                                CanvasElement::Line(canvas_line) => {
+                                    elements.push(canvas_line.slide_embed(&slide_embedding));
+                                }
+                            }
+                        }
+                    }
+                    elements
+
+                    /*
+                    vec![InstantaneousSlideElement::Shape {
+                        shape: ShapeSpec::Circle {
+                            center: Pos2::<W, H>::from_units(
+                                0.5 * SCREEN_UNITS,
+                                0.5 * SCREEN_UNITS,
+                            )
+                            .pixels(),
+                            radius: Length::<W, H>::from_units(0.1 * SCREEN_UNITS).pixels(),
+                        },
+                        visuals: ShapeVisualOptions {
+                            fill_rgba: ColourRgba {
+                                r: 1.0,
+                                g: 1.0,
+                                b: 0.0,
+                                a: 1.0,
+                            },
+                        },
+                        interp: InstantaneousInterpOptions {
+                            interp_in_type: None,
+                            interp_out_type: None,
+                        },
+                    }]
+                    */
+                }
+            }),
+        }
     }
 }
 
@@ -1197,25 +1661,27 @@ A picture with coordinates in a space independent of the slide coordinates
 
 The picture is fitted within the rect on the slide
 */
-pub struct Picture<const W: u32, const H: u32> {
+pub struct Picture {
     elements: Vec<PictureElement>,
     current_interp_from_draw_ordering: Option<PictureInterpDrawOrdering>,
     current_interp_to_draw_ordering: Option<PictureInterpDrawOrdering>,
 }
 
-impl<const W: u32, const H: u32> Picture<W, H> {
-    fn current_initial_shape_options(&mut self) -> ShapeOptions {
-        let mut options = ShapeOptions::default();
+impl Picture {
+    fn current_initial_shape_options(&mut self) -> TemporalShapeOptions {
+        let mut options = TemporalShapeOptions::default();
         if let Some(interp_draw_ordering) = &mut self.current_interp_from_draw_ordering {
-            options.interp.interp_from_id.enabled = true;
-            options.interp.interp_from_id.draw_order_group = Some(interp_draw_ordering.group);
-            options.interp.interp_from_id.draw_order_idx = Some(interp_draw_ordering.idx);
+            options.interp.interp_from_id = Some(InterpId {
+                user: interp_draw_ordering.group,
+                draw_order_idx: vec![interp_draw_ordering.idx],
+            });
             interp_draw_ordering.idx += 1;
         }
         if let Some(interp_draw_ordering) = &mut self.current_interp_to_draw_ordering {
-            options.interp.interp_to_id.enabled = true;
-            options.interp.interp_to_id.draw_order_group = Some(interp_draw_ordering.group);
-            options.interp.interp_to_id.draw_order_idx = Some(interp_draw_ordering.idx);
+            options.interp.interp_to_id = Some(InterpId {
+                user: interp_draw_ordering.group,
+                draw_order_idx: vec![interp_draw_ordering.idx],
+            });
             interp_draw_ordering.idx += 1;
         }
         options
@@ -1305,6 +1771,20 @@ impl<const W: u32, const H: u32> Picture<W, H> {
                 BoundingRect::new(min_x, max_x, min_y, max_y)
             })
     }
+
+    fn finish<const W: u32, const H: u32>(self, rect: &Rect<W, H>) -> SlideElements<W, H> {
+        let mut temporal = vec![];
+        if let Some(bounding_rect) = self.bounding_rect() {
+            let slide_embedding = SlideEmbedding::fit_within(rect, bounding_rect);
+            for element in self.elements {
+                temporal.push(element.slide_embed(&slide_embedding));
+            }
+        }
+        SlideElements {
+            temporal,
+            instantaneous: Timeline::Constant(vec![]),
+        }
+    }
 }
 
 /*
@@ -1334,7 +1814,7 @@ impl<const W: u32, const H: u32> SlideEmbedding<W, H> {
             .translate(self.position.pixels().0, self.position.pixels().1)
     }
 
-    fn fit_within(rect: Rect<W, H>, bounding_rect: BoundingRect) -> Self {
+    fn fit_within(rect: &Rect<W, H>, bounding_rect: BoundingRect) -> Self {
         Self {
             origin: bounding_rect.center(),
             scale: if bounding_rect.width() * rect.height() < bounding_rect.height() * rect.width()
@@ -1360,7 +1840,7 @@ impl PictureElement {
     fn slide_embed<const W: u32, const H: u32>(
         self,
         embedding: &SlideEmbedding<W, H>,
-    ) -> SlideElement<W, H> {
+    ) -> TemporalSlideElement<W, H> {
         match self {
             PictureElement::Circle(x) => x.slide_embed(embedding),
             PictureElement::Line(x) => x.slide_embed(embedding),
@@ -1380,15 +1860,15 @@ impl PictureElement {
 pub struct PictureCircle {
     center: Timeline<(f64, f64)>,
     radius: Timeline<f64>,
-    options: ShapeOptions,
+    options: TemporalShapeOptions,
 }
 
 impl PictureCircle {
     fn slide_embed<const W: u32, const H: u32>(
         self,
         embedding: &SlideEmbedding<W, H>,
-    ) -> SlideElement<W, H> {
-        SlideElement::Circle {
+    ) -> TemporalSlideElement<W, H> {
+        TemporalSlideElement::Circle {
             center: self.center.map({
                 let embedding = embedding.clone();
                 move |_t, x| embedding.map_point(*x)
@@ -1456,15 +1936,15 @@ pub struct PictureLine {
     start: Timeline<(f64, f64)>,
     end: Timeline<(f64, f64)>,
     radius: Timeline<f64>,
-    options: ShapeOptions,
+    options: TemporalShapeOptions,
 }
 
 impl PictureLine {
     fn slide_embed<const W: u32, const H: u32>(
         self,
         embedding: &SlideEmbedding<W, H>,
-    ) -> SlideElement<W, H> {
-        SlideElement::Line {
+    ) -> TemporalSlideElement<W, H> {
+        TemporalSlideElement::Line {
             start: self.start.map({
                 let embedding = embedding.clone();
                 move |_t, x| embedding.map_point(*x)
@@ -1549,7 +2029,7 @@ pub struct PictureShape {
     shape: Timeline<ShapeSpec>,
     origin: (f64, f64),
     position: Timeline<(f64, f64)>,
-    options: ShapeOptions,
+    options: TemporalShapeOptions,
 }
 
 impl Default for PictureShape {
@@ -1567,8 +2047,8 @@ impl PictureShape {
     fn slide_embed<const W: u32, const H: u32>(
         self,
         embedding: &SlideEmbedding<W, H>,
-    ) -> SlideElement<W, H> {
-        SlideElement::Shape {
+    ) -> TemporalSlideElement<W, H> {
+        TemporalSlideElement::Shape {
             shape: self.shape.map({
                 let embedding = embedding.clone();
                 move |t, x| {
