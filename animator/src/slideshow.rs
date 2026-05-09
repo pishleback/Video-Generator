@@ -1330,7 +1330,7 @@ impl<const W: u32, const H: u32> SlideRegionBuilder<W, H> {
             })));
         match self.elements.last_mut().unwrap() {
             SlideRegionElement::Canvas(element) => element,
-            _ => unreachable!(),
+            // _ => unreachable!(),
         }
     }
 
