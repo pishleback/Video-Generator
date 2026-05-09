@@ -12,8 +12,6 @@ fn main() {
         a: 1.0,
     });
 
-    slideshow.slide(|slide| {});
-
     slideshow
         .slide(|slide| {
             slide.title_space().canvas(|picture, t| {
