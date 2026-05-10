@@ -154,6 +154,44 @@ fn main() {
         })
         .duration(5.0);
 
+    slideshow
+        .slide(|slide| {
+            slide
+                .canvas(|canvas, t| {
+                    canvas
+                        .pixels(move |x, y| {
+                            ColourBuilder::new()
+                                .hue_rad(t)
+                                .saturation(x)
+                                .lightness(y)
+                                .finish()
+                                .alpha(1.0)
+                        })
+                        .interp_id(0);
+                })
+                .fixed_bounding_rect(0.0, 2.0, 0.0, 1.0);
+        })
+        .duration(6.0);
+
+    slideshow
+        .slide(|slide| {
+            slide
+                .canvas(|canvas, t| {
+                    canvas
+                        .pixels(move |x, y| {
+                            ColourBuilder::new()
+                                .hue_rad(t)
+                                .saturation(y)
+                                .lightness(x)
+                                .finish()
+                                .alpha(1.0)
+                        })
+                        .interp_id(0);
+                })
+                .fixed_bounding_rect(0.0, 1.0, 0.0, 2.0);
+        })
+        .duration(6.0);
+
     let video = slideshow.video(2.0);
     let path = video.make_path();
     std::fs::copy(path.clone(), Path::new("outputs/out.mp4")).unwrap();

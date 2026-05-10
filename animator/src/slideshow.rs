@@ -258,6 +258,12 @@ enum TemporalSlideElement<const W: u32, const H: u32> {
         shape: Timeline<ShapeSpec>, // in pixel coords
         options: TemporalShapeOptions,
     },
+    Pixels {
+        min: Pos2<W, H>,
+        max: Pos2<W, H>,
+        pixels: Timeline<Arc<dyn Fn(Pos2<W, H>) -> ColourWithAlpha + Send + Sync>>,
+        interp: TemporalInterpOptions,
+    },
 }
 
 impl<const W: u32, const H: u32> TemporalSlideElement<W, H> {
@@ -266,6 +272,7 @@ impl<const W: u32, const H: u32> TemporalSlideElement<W, H> {
             Self::Circle { options, .. } => &options.interp,
             Self::Line { options, .. } => &options.interp,
             Self::Shape { options, .. } => &options.interp,
+            Self::Pixels { interp, .. } => interp,
         }
     }
 }
@@ -763,6 +770,13 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                     fill: options.visuals.at_time(slide_t).fill_rgba,
                                 }
                             }
+                            TemporalSlideElement::Pixels {
+                                min, max, pixels, ..
+                            } => ElementInstant::Pixels {
+                                min: min.pixels(),
+                                max: max.pixels(),
+                                pixels: pixels.at_time(slide_t),
+                            },
                         })
                 } else {
                     // on an interp
@@ -825,6 +839,16 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                             .mul_alpha(interp_frac as f32),
                                     }
                                 }
+                                TemporalSlideElement::Pixels {
+                                    min, max, pixels, ..
+                                } => ElementInstant::Pixels {
+                                    min: min.pixels(),
+                                    max: max.pixels(),
+                                    pixels: {
+                                        let pixels_t = pixels.at_time(to_slide_t);
+                                        Arc::new(move |p| pixels_t(p).mul_alpha(interp_frac as f32))
+                                    },
+                                },
                             })
                         }
                         (Some(from_element), None) => {
@@ -846,7 +870,7 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                     },
                                     fill: options
                                         .visuals
-                                        .at_time(to_slide_t)
+                                        .at_time(from_slide_t)
                                         .fill_rgba
                                         .mul_alpha(1.0 - interp_frac as f32),
                                 },
@@ -863,7 +887,7 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                     },
                                     fill: options
                                         .visuals
-                                        .at_time(to_slide_t)
+                                        .at_time(from_slide_t)
                                         .fill_rgba
                                         .mul_alpha(1.0 - interp_frac as f32),
                                 },
@@ -872,11 +896,23 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                         shape: shape.at_time(from_slide_t).clone(),
                                         fill: options
                                             .visuals
-                                            .at_time(to_slide_t)
+                                            .at_time(from_slide_t)
                                             .fill_rgba
                                             .mul_alpha(1.0 - interp_frac as f32),
                                     }
                                 }
+                                TemporalSlideElement::Pixels {
+                                    min, max, pixels, ..
+                                } => ElementInstant::Pixels {
+                                    min: min.pixels(),
+                                    max: max.pixels(),
+                                    pixels: {
+                                        let pixels_t = pixels.at_time(from_slide_t);
+                                        Arc::new(move |p| {
+                                            pixels_t(p).mul_alpha(1.0 - interp_frac as f32)
+                                        })
+                                    },
+                                },
                             })
                         }
                         (Some(from_element), Some(to_element)) => {
@@ -1057,8 +1093,38 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                         fill: visuals.fill_rgba,
                                     }
                                 }
+                                (
+                                    TemporalSlideElement::Pixels {
+                                        min: from_min,
+                                        max: from_max,
+                                        pixels: from_pixels,
+                                        ..
+                                    },
+                                    TemporalSlideElement::Pixels {
+                                        min: to_min,
+                                        max: to_max,
+                                        pixels: to_pixels,
+                                        ..
+                                    },
+                                ) => ElementInstant::Pixels {
+                                    min: Pos2::interp(from_min, to_min, interp_frac).pixels(),
+                                    max: Pos2::interp(from_max, to_max, interp_frac).pixels(),
+                                    pixels: {
+                                        let from_pixels_t = from_pixels.at_time(from_slide_t);
+                                        let to_pixels_t = to_pixels.at_time(to_slide_t);
+                                        Arc::new(move |p| {
+                                            ColourWithAlpha::interp(
+                                                &from_pixels_t(p),
+                                                &to_pixels_t(p),
+                                                interp_frac,
+                                            )
+                                        })
+                                    },
+                                },
                                 _ => {
-                                    unimplemented!("Interpolation not implemented");
+                                    unimplemented!(
+                                        "Interpolation not implemented for these element types"
+                                    );
                                 }
                             })
                         }
@@ -1156,7 +1222,9 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                             elements.push(ElementInstant::Pixels {
                                                 min: min.pixels(),
                                                 max: max.pixels(),
-                                                pixels,
+                                                pixels: Arc::new(move |p| {
+                                                    pixels(p).mul_alpha(interp_frac as f32)
+                                                }),
                                             });
                                         }
                                     }
@@ -1195,7 +1263,9 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                             elements.push(ElementInstant::Pixels {
                                                 min: min.pixels(),
                                                 max: max.pixels(),
-                                                pixels,
+                                                pixels: Arc::new(move |p| {
+                                                    pixels(p).mul_alpha(1.0 - interp_frac as f32)
+                                                }),
                                             });
                                         }
                                     }
@@ -1390,20 +1460,15 @@ impl CanvasElementOrGroup {
         match self {
             CanvasElementOrGroup::Element(element) => {
                 let interp_id = match &element {
-                    CanvasElement::Circle(circle) => circle.interp_id.map(|id| InterpId {
-                        id,
-                        draw_order_idx: vec![],
-                    }),
-                    CanvasElement::Line(line) => line.interp_id.map(|id| InterpId {
-                        id,
-                        draw_order_idx: vec![],
-                    }),
-                    CanvasElement::Shape(shape) => shape.interp_id.map(|id| InterpId {
-                        id,
-                        draw_order_idx: vec![],
-                    }),
-                    CanvasElement::Pixels(_) => None,
-                };
+                    CanvasElement::Circle(circle) => circle.interp_id,
+                    CanvasElement::Line(line) => line.interp_id,
+                    CanvasElement::Shape(shape) => shape.interp_id,
+                    CanvasElement::Pixels(pixels) => pixels.interp_id,
+                }
+                .map(|id| InterpId {
+                    id,
+                    draw_order_idx: vec![],
+                });
                 vec![CanvasElementWithInterpId { element, interp_id }]
             }
             CanvasElementOrGroup::Group(group) => {
@@ -1677,6 +1742,7 @@ impl CanvasShape {
 #[derive(Clone)]
 pub struct CanvasPixels {
     pixels: Arc<dyn Fn(f64, f64) -> ColourWithAlpha + Send + Sync>,
+    interp_id: Option<i64>,
 }
 
 impl CanvasPixels {
@@ -1701,6 +1767,11 @@ impl CanvasPixels {
                 interp_out_type: None,
             },
         }
+    }
+
+    pub fn interp_id(&mut self, id: i64) -> &mut Self {
+        self.interp_id = Some(id);
+        self
     }
 }
 
@@ -1810,6 +1881,7 @@ impl CanvasInstantGroup {
             .push(CanvasElementOrGroup::Element(CanvasElement::Pixels(
                 CanvasPixels {
                     pixels: Arc::new(pixels),
+                    interp_id: None,
                 },
             )));
         if let CanvasElementOrGroup::Element(element) = self.elements.last_mut().unwrap()
@@ -2045,7 +2117,50 @@ impl Canvas {
                                     },
                                 }
                             }
-                            CanvasElement::Pixels(_) => unreachable!("no temporal pixels yet"),
+                            CanvasElement::Pixels(_) => {
+                                let get_pixels_t = Rc::new({
+                                    let id = id.clone();
+                                    let at_t = at_t_check_matches.clone();
+                                    move |t| match at_t(t).get(&id).unwrap().element.clone() {
+                                        CanvasElement::Pixels(pixels) => pixels,
+                                        _ => {
+                                            panic!("Temporal element changed type")
+                                        }
+                                    }
+                                });
+
+                                let min = slide_embedding
+                                    .map_point((bounding_rect.min_x, bounding_rect.min_y));
+                                let max = slide_embedding
+                                    .map_point((bounding_rect.max_x, bounding_rect.max_y));
+
+                                TemporalSlideElement::Pixels {
+                                    min,
+                                    max,
+                                    pixels: Timeline::from_fn({
+                                        let slide_embedding = slide_embedding.clone();
+                                        move |t| {
+                                            let pixels: Arc<
+                                                dyn Fn(Pos2<W, H>) -> ColourWithAlpha + Send + Sync,
+                                            > = Arc::new({
+                                                let pixels = get_pixels_t(t).clone().pixels;
+                                                let slide_embedding = slide_embedding.clone();
+                                                move |p| {
+                                                    let (x, y) = slide_embedding.unmap_point(p);
+                                                    pixels(x, y)
+                                                }
+                                            });
+                                            pixels
+                                        }
+                                    }),
+                                    interp: TemporalInterpOptions {
+                                        interp_from_id: Some(id.clone()),
+                                        interp_to_id: Some(id.clone()),
+                                        interp_from_type: None,
+                                        interp_to_type: None,
+                                    },
+                                }
+                            }
                         })
                         .collect()
                 },
