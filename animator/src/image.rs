@@ -5,10 +5,12 @@ use crate::{
     video::VideoSpec,
 };
 use image::{DynamicImage, ImageBuffer, Rgba32FImage, imageops::FilterType};
+use rand::{RngExt, SeedableRng};
 use serde::{Deserialize, Serialize};
 use std::{
     io::Write,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -18,6 +20,7 @@ pub enum ImageSpec {
         height: u32,
         colour: ColourWithAlpha,
     },
+    Pixels(PixelsImage),
     Resize {
         image: Box<ImageSpec>,
         width: u32,
@@ -25,7 +28,7 @@ pub enum ImageSpec {
     },
     BlitStack {
         base: Box<ImageSpec>,
-        layers: Vec<((f64, f64), ImageSpec)>,
+        layers: Vec<((i64, i64), ImageSpec)>,
     },
     VideoFrame {
         video: VideoSpec,
@@ -39,7 +42,10 @@ impl ImageSpec {
     pub fn make_image(&self, path: &Path) {
         match self {
             ImageSpec::Latex(x) => x.make_image(path),
-            _ => self.image().to_rgba8().save(path).unwrap(),
+            _ => DynamicImage::ImageRgba32F(self.image())
+                .to_rgba8()
+                .save(path)
+                .unwrap(),
         }
     }
 
@@ -47,24 +53,23 @@ impl ImageSpec {
         cache().make_file(&FileSpec::Image(self.clone()))
     }
 
-    pub fn image(&self) -> image::DynamicImage {
+    pub fn image(&self) -> Rgba32FImage {
         match self {
             ImageSpec::Shape(x) => x.image(),
-            ImageSpec::VideoFrame { video, frame } => {
-                DynamicImage::from(video.frame(*frame).unwrap())
-            }
+            ImageSpec::VideoFrame { video, frame } => video.frame(*frame).unwrap(),
             ImageSpec::Resize {
                 image,
                 width,
                 height,
-            } => image
-                .image()
-                .resize_exact(*width, *height, FilterType::CatmullRom),
+            } => DynamicImage::ImageRgba32F(image.image())
+                .resize_exact(*width, *height, FilterType::CatmullRom)
+                .into(),
+            ImageSpec::Pixels(pixels) => pixels.image(),
             ImageSpec::Filled {
                 width,
                 height,
                 colour,
-            } => ImageBuffer::from_fn(*width, *height, |_x, _y| colour.to_srgb_f32()).into(),
+            } => ImageBuffer::from_fn(*width, *height, |_x, _y| colour.to_srgb_f32()),
             ImageSpec::BlitStack { base, layers } => {
                 fn blit_linear(dst: &mut Rgba32FImage, src: &Rgba32FImage, ox: i64, oy: i64) {
                     let (dw, dh) = dst.dimensions();
@@ -84,45 +89,44 @@ impl ImageSpec {
                             let sp = src.get_pixel(sx, sy);
                             let dp = dst.get_pixel_mut(dx as u32, dy as u32);
 
-                            // source in linear premultiplied
-                            let (sr, sg, sb, sa) = (sp[0], sp[1], sp[2], sp[3]);
+                            let sa = sp[3];
+                            let sr = srgb_to_linear(sp[0]);
+                            let sg = srgb_to_linear(sp[1]);
+                            let sb = srgb_to_linear(sp[2]);
 
-                            // destination in linear premultiplied
                             let da = dp[3];
-                            let dr = srgb_to_linear(dp[0]) * da;
-                            let dg = srgb_to_linear(dp[1]) * da;
-                            let db = srgb_to_linear(dp[2]) * da;
+                            let dr = srgb_to_linear(dp[0]);
+                            let dg = srgb_to_linear(dp[1]);
+                            let db = srgb_to_linear(dp[2]);
 
-                            // Porter-Duff "over" (premultiplied alpha)
                             let out_a = sa + da * (1.0 - sa);
-                            let out_r = sr + dr * (1.0 - sa);
-                            let out_g = sg + dg * (1.0 - sa);
-                            let out_b = sb + db * (1.0 - sa);
+                            let out_r = sr * sa + dr * da * (1.0 - sa);
+                            let out_g = sg * sa + dg * da * (1.0 - sa);
+                            let out_b = sb * sa + db * da * (1.0 - sa);
 
                             if out_a > 0.0 {
                                 let inv_a = 1.0 / out_a;
-                                dp[0] = linear_to_srgb((out_r * inv_a).clamp(0.0, 1.0));
-                                dp[1] = linear_to_srgb((out_g * inv_a).clamp(0.0, 1.0));
-                                dp[2] = linear_to_srgb((out_b * inv_a).clamp(0.0, 1.0));
-                                dp[3] = out_a;
+                                dp[0] = linear_to_srgb(out_r * inv_a);
+                                dp[1] = linear_to_srgb(out_g * inv_a);
+                                dp[2] = linear_to_srgb(out_b * inv_a);
                             } else {
                                 dp[0] = 0.0;
                                 dp[1] = 0.0;
                                 dp[2] = 0.0;
-                                dp[3] = 0.0;
                             }
+                            dp[3] = out_a;
                         }
                     }
                 }
 
-                let mut result = base.image().to_rgba32f();
+                let mut result = base.image();
                 for ((x, y), image_spec) in layers {
-                    let img = image_spec.image().to_rgba32f();
-                    blit_linear(&mut result, &img, *x as i64, *y as i64);
+                    let img = image_spec.image();
+                    blit_linear(&mut result, &img, *x, *y);
                 }
-                result.into()
+                result
             }
-            _ => image::open(self.make_path()).unwrap(),
+            _ => image::open(self.make_path()).unwrap().into(),
         }
     }
 }
@@ -167,5 +171,67 @@ $"#,
             .unwrap();
 
         std::fs::copy(tmp_dir.path().join("out-1.png"), path).unwrap();
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct PixelsImage {
+    width: u32,
+    height: u32,
+    pixels_hash: Vec<ColourWithAlpha>,
+    #[serde(skip)]
+    pixels: Option<Arc<dyn Fn(u32, u32) -> ColourWithAlpha + Send + Sync + 'static>>,
+}
+
+impl std::fmt::Debug for PixelsImage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PixelsImage")
+            .field("width", &self.width)
+            .field("height", &self.height)
+            .finish()
+    }
+}
+
+impl PartialEq for PixelsImage {
+    fn eq(&self, other: &Self) -> bool {
+        self.width == other.width
+            && self.height == other.height
+            && self.pixels_hash == other.pixels_hash
+    }
+}
+
+impl Eq for PixelsImage {}
+
+impl PixelsImage {
+    pub fn new(
+        width: u32,
+        height: u32,
+        pixels: impl Fn(u32, u32) -> ColourWithAlpha + Send + Sync + 'static,
+    ) -> Self {
+        let pixels = Arc::new(pixels);
+        let mut rng = rand::rngs::StdRng::seed_from_u64(0);
+        let pixels_hash = (0..60)
+            .map({
+                let pixels = pixels.clone();
+                move |_| {
+                    let x = rng.random_range(0..width);
+                    let y = rng.random_range(0..height);
+                    pixels(x, y)
+                }
+            })
+            .collect();
+        Self {
+            width,
+            height,
+            pixels_hash,
+            pixels: Some(pixels),
+        }
+    }
+
+    fn image(&self) -> Rgba32FImage {
+        let pixels = self.pixels.clone().unwrap();
+        ImageBuffer::from_fn(self.width, self.height, move |x, y| {
+            pixels(x, y).to_srgb_f32()
+        })
     }
 }

@@ -7,8 +7,7 @@ use geo::{
     Line, LineString, MakeValid, MultiLineString, MultiPolygon, Point, Polygon, SimplifyVwPreserve,
     Translate, Validation,
 };
-use image::DynamicImage;
-use image::{GrayImage, Luma};
+use image::{GrayImage, Luma, Rgba32FImage};
 use imageproc::contours::{BorderType, Contour, find_contours};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -235,7 +234,7 @@ impl FromImageShape {
             LineString::from(coords)
         }
 
-        fn image_to_multipolygon(img: DynamicImage) -> MultiPolygon<f64> {
+        fn image_to_multipolygon(img: image::DynamicImage) -> MultiPolygon<f64> {
             let img = img.to_luma8();
 
             let mut binary = GrayImage::new(img.width(), img.height());
@@ -287,7 +286,7 @@ impl FromImageShape {
                 .simplify_vw_preserve(32.0)
         }
 
-        let shape = ShapeData::new(image_to_multipolygon(self.image.image()));
+        let shape = ShapeData::new(image_to_multipolygon(self.image.image().into()));
 
         std::fs::write(shape_path, serde_json::to_string_pretty(&shape).unwrap()).unwrap();
     }
@@ -567,7 +566,7 @@ pub struct ShapeImage {
 }
 
 impl ShapeImage {
-    pub fn image(&self) -> DynamicImage {
+    pub fn image(&self) -> Rgba32FImage {
         use tiny_skia::{Color, FillRule, Paint, PathBuilder, Pixmap, Transform};
 
         let width = self.width;
@@ -576,7 +575,7 @@ impl ShapeImage {
         let mut pixmap = Pixmap::new(width, height).expect("failed to create pixmap");
 
         let to_tiny_skia_colour = |colour: ColourWithAlpha| {
-            let colour = colour.to_linear_f32();
+            let colour = colour.to_srgb_f32();
             Color::from_rgba(colour[0], colour[1], colour[2], colour[3]).unwrap()
         };
 
@@ -631,9 +630,30 @@ impl ShapeImage {
         );
 
         // convert to DynamicImage
-        DynamicImage::ImageRgba8(
+        let mut img = image::DynamicImage::ImageRgba8(
             image::RgbaImage::from_raw(width, height, pixmap.data().to_vec())
                 .expect("conversion failed"),
         )
+        .to_rgba32f();
+
+        // tiny-skia outputs pre-multipled alpha
+        // our render pipeline assumes straight alpha, so we correct for that now
+        for x in 0..img.width() {
+            for y in 0..img.height() {
+                let p = img.get_pixel_mut(x, y);
+                let a = p[3];
+                if a > 0.0 {
+                    let a_inv = 1.0 / a;
+                    p[0] *= a_inv;
+                    p[1] *= a_inv;
+                    p[2] *= a_inv;
+                } else {
+                    p[0] = 0.0;
+                    p[1] = 0.0;
+                    p[2] = 0.0;
+                }
+            }
+        }
+        img
     }
 }

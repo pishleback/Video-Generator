@@ -1,15 +1,17 @@
 use crate::{
     colour::ColourWithAlpha,
     coords::{Length, Pos2, Rect, SCREEN_UNITS, Vec2},
-    image::ImageSpec,
+    image::{ImageSpec, PixelsImage},
     interpolation::Interpable,
     shape::ShapeSpec,
     video::{VideoCompiledSpec, VideoSpec},
 };
+use core::f64;
 use ordered_float::OrderedFloat;
 use std::{
     collections::{HashMap, HashSet},
     rc::Rc,
+    sync::Arc,
 };
 
 #[derive(Debug, Clone)]
@@ -285,12 +287,20 @@ enum InstantaneousSlideElement<const W: u32, const H: u32> {
         visuals: ShapeVisualOptions,
         interp: InstantaneousInterpOptions,
     },
+    Pixels {
+        min: Pos2<W, H>,
+        max: Pos2<W, H>,
+        // screen pixel coords -> colour
+        pixels: Arc<dyn Fn(Pos2<W, H>) -> ColourWithAlpha + Send + Sync>,
+        interp: InstantaneousInterpOptions,
+    },
 }
 
 impl<const W: u32, const H: u32> InstantaneousSlideElement<W, H> {
     fn interp_options(&self) -> &InstantaneousInterpOptions {
         match self {
             InstantaneousSlideElement::Shape { interp, .. } => interp,
+            InstantaneousSlideElement::Pixels { interp, .. } => interp,
         }
     }
 }
@@ -696,9 +706,16 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                 (state_idx, *state_time, state_frac)
             };
 
-        struct ElementInstant<const W: u32, const H: u32> {
-            shape: ShapeSpec,
-            fill: ColourWithAlpha,
+        enum ElementInstant<const W: u32, const H: u32> {
+            Shape {
+                shape: ShapeSpec,
+                fill: ColourWithAlpha,
+            },
+            Pixels {
+                min: (f64, f64),
+                max: (f64, f64),
+                pixels: Arc<dyn Fn(Pos2<W, H>) -> ColourWithAlpha + Send + Sync>,
+            },
         }
 
         impl<const W: u32, const H: u32> MultiSlideElement<W, H> {
@@ -720,7 +737,7 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                 center,
                                 radius,
                                 options,
-                            } => ElementInstant {
+                            } => ElementInstant::Shape {
                                 shape: ShapeSpec::Circle {
                                     center: center.at_time(slide_t).pixels(),
                                     radius: radius.at_time(slide_t).pixels(),
@@ -732,7 +749,7 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                 end,
                                 radius,
                                 options,
-                            } => ElementInstant {
+                            } => ElementInstant::Shape {
                                 shape: ShapeSpec::Line {
                                     point1: start.at_time(slide_t).pixels(),
                                     point2: end.at_time(slide_t).pixels(),
@@ -740,10 +757,12 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                 },
                                 fill: options.visuals.at_time(slide_t).fill_rgba,
                             },
-                            TemporalSlideElement::Shape { shape, options } => ElementInstant {
-                                shape: shape.at_time(slide_t).clone(),
-                                fill: options.visuals.at_time(slide_t).fill_rgba,
-                            },
+                            TemporalSlideElement::Shape { shape, options } => {
+                                ElementInstant::Shape {
+                                    shape: shape.at_time(slide_t).clone(),
+                                    fill: options.visuals.at_time(slide_t).fill_rgba,
+                                }
+                            }
                         })
                 } else {
                     // on an interp
@@ -768,7 +787,7 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                     center,
                                     radius,
                                     options,
-                                } => ElementInstant {
+                                } => ElementInstant::Shape {
                                     shape: ShapeSpec::Circle {
                                         center: center.at_time(to_slide_t).pixels(),
                                         radius: radius.at_time(to_slide_t).pixels(),
@@ -777,14 +796,14 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                         .visuals
                                         .at_time(to_slide_t)
                                         .fill_rgba
-                                        .mul_alpha_linear(interp_frac as f32),
+                                        .mul_alpha(interp_frac as f32),
                                 },
                                 TemporalSlideElement::Line {
                                     start,
                                     end,
                                     radius,
                                     options,
-                                } => ElementInstant {
+                                } => ElementInstant::Shape {
                                     shape: ShapeSpec::Line {
                                         point1: start.at_time(to_slide_t).pixels(),
                                         point2: end.at_time(to_slide_t).pixels(),
@@ -794,16 +813,18 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                         .visuals
                                         .at_time(to_slide_t)
                                         .fill_rgba
-                                        .mul_alpha_linear(interp_frac as f32),
+                                        .mul_alpha(interp_frac as f32),
                                 },
-                                TemporalSlideElement::Shape { shape, options } => ElementInstant {
-                                    shape: shape.at_time(to_slide_t).clone(),
-                                    fill: options
-                                        .visuals
-                                        .at_time(to_slide_t)
-                                        .fill_rgba
-                                        .mul_alpha_linear(interp_frac as f32),
-                                },
+                                TemporalSlideElement::Shape { shape, options } => {
+                                    ElementInstant::Shape {
+                                        shape: shape.at_time(to_slide_t).clone(),
+                                        fill: options
+                                            .visuals
+                                            .at_time(to_slide_t)
+                                            .fill_rgba
+                                            .mul_alpha(interp_frac as f32),
+                                    }
+                                }
                             })
                         }
                         (Some(from_element), None) => {
@@ -818,7 +839,7 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                     center,
                                     radius,
                                     options,
-                                } => ElementInstant {
+                                } => ElementInstant::Shape {
                                     shape: ShapeSpec::Circle {
                                         center: center.at_time(from_slide_t).pixels(),
                                         radius: radius.at_time(from_slide_t).pixels(),
@@ -827,14 +848,14 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                         .visuals
                                         .at_time(to_slide_t)
                                         .fill_rgba
-                                        .mul_alpha_linear(1.0 - interp_frac as f32),
+                                        .mul_alpha(1.0 - interp_frac as f32),
                                 },
                                 TemporalSlideElement::Line {
                                     start,
                                     end,
                                     radius,
                                     options,
-                                } => ElementInstant {
+                                } => ElementInstant::Shape {
                                     shape: ShapeSpec::Line {
                                         point1: start.at_time(from_slide_t).pixels(),
                                         point2: end.at_time(from_slide_t).pixels(),
@@ -844,16 +865,18 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                         .visuals
                                         .at_time(to_slide_t)
                                         .fill_rgba
-                                        .mul_alpha_linear(1.0 - interp_frac as f32),
+                                        .mul_alpha(1.0 - interp_frac as f32),
                                 },
-                                TemporalSlideElement::Shape { shape, options } => ElementInstant {
-                                    shape: shape.at_time(from_slide_t).clone(),
-                                    fill: options
-                                        .visuals
-                                        .at_time(to_slide_t)
-                                        .fill_rgba
-                                        .mul_alpha_linear(1.0 - interp_frac as f32),
-                                },
+                                TemporalSlideElement::Shape { shape, options } => {
+                                    ElementInstant::Shape {
+                                        shape: shape.at_time(from_slide_t).clone(),
+                                        fill: options
+                                            .visuals
+                                            .at_time(to_slide_t)
+                                            .fill_rgba
+                                            .mul_alpha(1.0 - interp_frac as f32),
+                                    }
+                                }
                             })
                         }
                         (Some(from_element), Some(to_element)) => {
@@ -889,7 +912,7 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                         &to_options.visuals.at_time(to_slide_t),
                                         interp_frac,
                                     );
-                                    ElementInstant {
+                                    ElementInstant::Shape {
                                         shape: ShapeSpec::Circle {
                                             center: Pos2::interp(
                                                 &from_center.at_time(from_slide_t),
@@ -925,7 +948,7 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                         &to_options.visuals.at_time(to_slide_t),
                                         interp_frac,
                                     );
-                                    ElementInstant {
+                                    ElementInstant::Shape {
                                         shape: ShapeSpec::Line {
                                             point1: Pos2::interp(
                                                 &from_center.at_time(from_slide_t),
@@ -967,7 +990,7 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                         &to_options.visuals.at_time(to_slide_t),
                                         interp_frac,
                                     );
-                                    ElementInstant {
+                                    ElementInstant::Shape {
                                         shape: ShapeSpec::Line {
                                             point1: Pos2::interp(
                                                 &from_start.at_time(from_slide_t),
@@ -1010,7 +1033,7 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                         &to_options.visuals.at_time(to_slide_t),
                                         interp_frac,
                                     );
-                                    ElementInstant {
+                                    ElementInstant::Shape {
                                         shape: ShapeSpec::Line {
                                             point1: Pos2::interp(
                                                 &from_start.at_time(from_slide_t),
@@ -1049,7 +1072,7 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
             let state_pos = t_to_state_idx_and_time_and_frac(t);
 
             struct Layer {
-                top_left: (f64, f64),
+                top_left: (i64, i64),
                 image: ImageSpec,
             }
 
@@ -1074,9 +1097,21 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                         InstantaneousSlideElement::Shape {
                                             shape, visuals, ..
                                         } => {
-                                            elements.push(ElementInstant {
+                                            elements.push(ElementInstant::Shape {
                                                 shape,
                                                 fill: visuals.fill_rgba,
+                                            });
+                                        }
+                                        InstantaneousSlideElement::Pixels {
+                                            min,
+                                            max,
+                                            pixels,
+                                            ..
+                                        } => {
+                                            elements.push(ElementInstant::Pixels {
+                                                min: min.pixels(),
+                                                max: max.pixels(),
+                                                pixels,
                                             });
                                         }
                                     }
@@ -1105,11 +1140,23 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                         InstantaneousSlideElement::Shape {
                                             shape, visuals, ..
                                         } => {
-                                            elements.push(ElementInstant {
+                                            elements.push(ElementInstant::Shape {
                                                 shape,
                                                 fill: visuals
                                                     .fill_rgba
-                                                    .mul_alpha_linear(interp_frac as f32),
+                                                    .mul_alpha(interp_frac as f32),
+                                            });
+                                        }
+                                        InstantaneousSlideElement::Pixels {
+                                            min,
+                                            max,
+                                            pixels,
+                                            ..
+                                        } => {
+                                            elements.push(ElementInstant::Pixels {
+                                                min: min.pixels(),
+                                                max: max.pixels(),
+                                                pixels,
                                             });
                                         }
                                     }
@@ -1132,11 +1179,23 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                         InstantaneousSlideElement::Shape {
                                             shape, visuals, ..
                                         } => {
-                                            elements.push(ElementInstant {
+                                            elements.push(ElementInstant::Shape {
                                                 shape,
                                                 fill: visuals
                                                     .fill_rgba
-                                                    .mul_alpha_linear(1.0 - interp_frac as f32),
+                                                    .mul_alpha(1.0 - interp_frac as f32),
+                                            });
+                                        }
+                                        InstantaneousSlideElement::Pixels {
+                                            min,
+                                            max,
+                                            pixels,
+                                            ..
+                                        } => {
+                                            elements.push(ElementInstant::Pixels {
+                                                min: min.pixels(),
+                                                max: max.pixels(),
+                                                pixels,
                                             });
                                         }
                                     }
@@ -1152,29 +1211,50 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
             // TODO: custom options for how to sort
             // for now, sort by relative luminance
             instant_elements.sort_by_cached_key(|instant_element| {
-                OrderedFloat(instant_element.fill.to_relative_luminance())
+                OrderedFloat(match instant_element {
+                    ElementInstant::Shape { fill, .. } => fill.to_relative_luminance(),
+                    ElementInstant::Pixels { .. } => -1.0,
+                })
             });
 
             for instant_element in instant_elements {
-                if let Some(br) = instant_element.shape.shape().bounding_rect() {
-                    let min = br.min().x_y();
-                    let min = (min.0.floor() as u32, min.1.floor() as u32);
-                    let max = br.max().x_y();
-                    let max = (max.0.ceil() as u32, max.1.ceil() as u32);
-                    let width = max.0 - min.0;
-                    let height = max.1 - min.1;
-                    layers.push(Layer {
-                        top_left: (min.0 as f64, min.1 as f64),
-                        image: instant_element
-                            .shape
-                            .translate(-(min.0 as f64), -(min.1 as f64))
-                            .image(
-                                width,
-                                height,
-                                instant_element.fill.mul_alpha_linear(0.0),
-                                instant_element.fill,
-                            ),
-                    });
+                match instant_element {
+                    ElementInstant::Shape { shape, fill } => {
+                        if let Some(br) = shape.shape().bounding_rect() {
+                            let min = br.min().x_y();
+                            let min = (min.0.floor() as i64, min.1.floor() as i64);
+                            let max = br.max().x_y();
+                            let max = (max.0.ceil() as i64, max.1.ceil() as i64);
+                            let width = (max.0 - min.0) as u32;
+                            let height = (max.1 - min.1) as u32;
+                            layers.push(Layer {
+                                top_left: (min.0, min.1),
+                                image: shape.translate(-(min.0 as f64), -(min.1 as f64)).image(
+                                    width,
+                                    height,
+                                    fill.mul_alpha(0.0),
+                                    fill,
+                                ),
+                            });
+                        }
+                    }
+                    ElementInstant::Pixels { min, max, pixels } => {
+                        let min_rounded = (min.0.round() as i64, min.1.round() as i64);
+                        let max_rounded = (max.0.round() as i64, max.1.round() as i64);
+                        layers.push(Layer {
+                            top_left: min_rounded,
+                            image: ImageSpec::Pixels(PixelsImage::new(
+                                (max_rounded.0 - min_rounded.0) as u32,
+                                (max_rounded.1 - min_rounded.1) as u32,
+                                move |x, y| {
+                                    pixels(Pos2::from_pixels(
+                                        x as f64 + min_rounded.0 as f64,
+                                        y as f64 + min_rounded.1 as f64,
+                                    ))
+                                },
+                            )),
+                        });
+                    }
                 }
             }
 
@@ -1322,6 +1402,7 @@ impl CanvasElementOrGroup {
                         id,
                         draw_order_idx: vec![],
                     }),
+                    CanvasElement::Pixels(_) => None,
                 };
                 vec![CanvasElementWithInterpId { element, interp_id }]
             }
@@ -1364,6 +1445,7 @@ enum CanvasElement {
     Circle(CanvasCircle),
     Line(CanvasLine),
     Shape(CanvasShape),
+    Pixels(CanvasPixels),
 }
 
 impl CanvasElement {
@@ -1372,6 +1454,7 @@ impl CanvasElement {
             CanvasElement::Circle(circle) => circle.bounding_rect(),
             CanvasElement::Line(line) => line.bounding_rect(),
             CanvasElement::Shape(shape) => shape.bounding_rect(),
+            CanvasElement::Pixels(_) => None,
         }
     }
 }
@@ -1592,6 +1675,36 @@ impl CanvasShape {
 }
 
 #[derive(Clone)]
+pub struct CanvasPixels {
+    pixels: Arc<dyn Fn(f64, f64) -> ColourWithAlpha + Send + Sync>,
+}
+
+impl CanvasPixels {
+    fn slide_embed<const W: u32, const H: u32>(
+        self,
+        embedding: &SlideEmbedding<W, H>,
+        bounding_rect: &BoundingRect,
+    ) -> InstantaneousSlideElement<W, H> {
+        InstantaneousSlideElement::Pixels {
+            min: embedding.map_point((bounding_rect.min_x, bounding_rect.min_y)),
+            max: embedding.map_point((bounding_rect.max_x, bounding_rect.max_y)),
+            pixels: Arc::new({
+                let pixels = self.pixels.clone();
+                let embedding = embedding.clone();
+                move |pt| {
+                    let (x, y) = embedding.unmap_point(pt);
+                    pixels(x, y)
+                }
+            }),
+            interp: InstantaneousInterpOptions {
+                interp_in_type: None,
+                interp_out_type: None,
+            },
+        }
+    }
+}
+
+#[derive(Clone)]
 struct CanvasElementWithInterpId {
     element: CanvasElement,
     interp_id: Option<InterpId>,
@@ -1689,6 +1802,25 @@ impl CanvasInstantGroup {
         self.latex(format!(r#"\text{{{}}}"#, expr.into()))
     }
 
+    pub fn pixels(
+        &mut self,
+        pixels: impl Fn(f64, f64) -> ColourWithAlpha + Send + Sync + 'static,
+    ) -> &mut CanvasPixels {
+        self.elements
+            .push(CanvasElementOrGroup::Element(CanvasElement::Pixels(
+                CanvasPixels {
+                    pixels: Arc::new(pixels),
+                },
+            )));
+        if let CanvasElementOrGroup::Element(element) = self.elements.last_mut().unwrap()
+            && let CanvasElement::Pixels(element) = element
+        {
+            element
+        } else {
+            unreachable!()
+        }
+    }
+
     fn flatten(self) -> Vec<CanvasElementWithInterpId> {
         let mut elements = vec![];
         for element in self.elements {
@@ -1757,7 +1889,7 @@ impl Canvas {
 
     fn finish<const W: u32, const H: u32>(self, rect: &Rect<W, H>) -> SlideElements<W, H> {
         if let Some(bounding_rect) = self.get_bounding_rect() {
-            let slide_embedding = SlideEmbedding::fit_within(rect, bounding_rect);
+            let slide_embedding = SlideEmbedding::fit_within(rect, &bounding_rect);
             SlideElements {
                 temporal: {
                     // list of all the temporal elements at a given time by ID
@@ -1913,11 +2045,13 @@ impl Canvas {
                                     },
                                 }
                             }
+                            CanvasElement::Pixels(_) => unreachable!("no temporal pixels yet"),
                         })
                         .collect()
                 },
                 instantaneous: Timeline::from_fn({
                     let build_instant = self.build_instant.clone();
+                    let bounding_rect = bounding_rect.clone();
                     move |t| {
                         let mut elements = vec![];
                         for element in (build_instant)(t).flatten() {
@@ -1931,6 +2065,11 @@ impl Canvas {
                                     }
                                     CanvasElement::Shape(shape) => {
                                         elements.push(shape.slide_embed(&slide_embedding));
+                                    }
+                                    CanvasElement::Pixels(pixels) => {
+                                        elements.push(
+                                            pixels.slide_embed(&slide_embedding, &bounding_rect),
+                                        );
                                     }
                                 }
                             }
@@ -1972,7 +2111,15 @@ impl<const W: u32, const H: u32> SlideEmbedding<W, H> {
             .translate(self.position.pixels().0, self.position.pixels().1)
     }
 
-    fn fit_within(rect: &Rect<W, H>, bounding_rect: BoundingRect) -> Self {
+    fn unmap_point(&self, point: Pos2<W, H>) -> (f64, f64) {
+        let offset_point = (point - self.position) / self.scale;
+        (
+            offset_point.0 + self.origin.0,
+            offset_point.1 + self.origin.1,
+        )
+    }
+
+    fn fit_within(rect: &Rect<W, H>, bounding_rect: &BoundingRect) -> Self {
         Self {
             origin: bounding_rect.center(),
             scale: if bounding_rect.width() * rect.height() < bounding_rect.height() * rect.width()

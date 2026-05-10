@@ -3,6 +3,7 @@ use crate::data::FileSpec;
 use crate::data::cache;
 use crate::image::ImageSpec;
 use crate::timeline::Timeline;
+use image::Rgba32FImage;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -127,7 +128,7 @@ impl VideoSpec {
         frames_str.parse::<usize>().expect("invalid frame count")
     }
 
-    pub fn frame(&self, frame: usize) -> Option<image::ImageBuffer<image::Rgb<u8>, Vec<u8>>> {
+    pub fn frame(&self, frame: usize) -> Option<Rgba32FImage> {
         let (width, height) = self.size();
         let frame_size = (width as usize) * (height as usize) * 3;
 
@@ -158,7 +159,9 @@ impl VideoSpec {
             return None;
         }
 
-        image::ImageBuffer::from_raw(width, height, output.stdout)
+        let image: image::ImageBuffer<image::Rgb<u8>, Vec<u8>> =
+            image::ImageBuffer::from_raw(width, height, output.stdout).unwrap();
+        Some(image::DynamicImage::from(image).into())
     }
 
     pub fn image_timeline(&self) -> VideoImageTimeline {

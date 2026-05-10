@@ -25,6 +25,10 @@ impl<const WIDTH: u32, const HEIGHT: u32> Pos2<WIDTH, HEIGHT> {
         }
     }
 
+    pub fn from_pixels(x: f64, y: f64) -> Self {
+        Self { x, y }
+    }
+
     pub fn pixels(&self) -> (f64, f64) {
         (self.x, self.y)
     }
@@ -308,6 +312,17 @@ impl<const WIDTH: u32, const HEIGHT: u32> Sub<Vec2<WIDTH, HEIGHT>> for Pos2<WIDT
     }
 }
 
+// pos - pos
+impl<const WIDTH: u32, const HEIGHT: u32> Sub<Pos2<WIDTH, HEIGHT>> for Pos2<WIDTH, HEIGHT> {
+    type Output = Vec2<WIDTH, HEIGHT>;
+    fn sub(self, other: Pos2<WIDTH, HEIGHT>) -> Self::Output {
+        Vec2 {
+            x: self.x - other.x,
+            y: self.y - other.y,
+        }
+    }
+}
+
 // length * scalar
 impl<const WIDTH: u32, const HEIGHT: u32> Mul<f64> for Length<WIDTH, HEIGHT> {
     type Output = Length<WIDTH, HEIGHT>;
@@ -329,5 +344,13 @@ impl<const WIDTH: u32, const HEIGHT: u32> Div<f64> for Length<WIDTH, HEIGHT> {
     type Output = Length<WIDTH, HEIGHT>;
     fn div(self, other: f64) -> Self::Output {
         Length { v: self.v / other }
+    }
+}
+
+// vec / length
+impl<const WIDTH: u32, const HEIGHT: u32> Div<Length<WIDTH, HEIGHT>> for Vec2<WIDTH, HEIGHT> {
+    type Output = (f64, f64);
+    fn div(self, other: Length<WIDTH, HEIGHT>) -> Self::Output {
+        (self.x / other.v, self.y / other.v)
     }
 }

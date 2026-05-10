@@ -185,25 +185,22 @@ impl<const WIDTH: u32, const HEIGHT: u32> AnimationElement<WIDTH, HEIGHT>
 
         let mut layers = vec![];
         if fill_alpha != 0.0 {
-            layers.push(((0.0, 0.0), {
+            layers.push(((0, 0), {
                 shape.image(
                     WIDTH,
                     HEIGHT,
-                    ColourWithAlpha::from_colour_and_linear_alpha(fill_rgb, 0.0),
-                    ColourWithAlpha::from_colour_and_linear_alpha(fill_rgb, fill_alpha as f32),
+                    ColourWithAlpha::from_colour_and_alpha(fill_rgb, 0.0),
+                    ColourWithAlpha::from_colour_and_alpha(fill_rgb, fill_alpha as f32),
                 )
             }));
         }
         if boundary_alpha != 0.0 && boundary_thickness != 0.0 {
-            layers.push(((0.0, 0.0), {
+            layers.push(((0, 0), {
                 shape_boundary.image(
                     WIDTH,
                     HEIGHT,
-                    ColourWithAlpha::from_colour_and_linear_alpha(boundary_rgb, 0.0),
-                    ColourWithAlpha::from_colour_and_linear_alpha(
-                        boundary_rgb,
-                        boundary_alpha as f32,
-                    ),
+                    ColourWithAlpha::from_colour_and_alpha(boundary_rgb, 0.0),
+                    ColourWithAlpha::from_colour_and_alpha(boundary_rgb, boundary_alpha as f32),
                 )
             }));
         }
@@ -476,8 +473,8 @@ impl<const WIDTH: u32, const HEIGHT: u32> AnimationElement<WIDTH, HEIGHT>
                 base: Box::new(image_spec),
                 layers: vec![(
                     (
-                        position_x - origin_x * size_w,
-                        position_y - origin_y * size_h,
+                        (position_x - origin_x * size_w) as i64,
+                        (position_y - origin_y * size_h) as i64,
                     ),
                     ImageSpec::Resize {
                         image: Box::new(img),

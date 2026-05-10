@@ -31,16 +31,7 @@ pub struct ColourWithAlpha {
 }
 
 impl ColourWithAlpha {
-    pub fn from_colour_and_srgb_alpha(colour: Colour, alpha: f32) -> Self {
-        Self {
-            r: colour.r,
-            g: colour.g,
-            b: colour.b,
-            a: srgb_to_linear(alpha),
-        }
-    }
-
-    pub fn from_colour_and_linear_alpha(colour: Colour, alpha: f32) -> Self {
+    pub fn from_colour_and_alpha(colour: Colour, alpha: f32) -> Self {
         Self {
             r: colour.r,
             g: colour.g,
@@ -58,7 +49,7 @@ impl ColourWithAlpha {
             r: srgb_to_linear(r),
             g: srgb_to_linear(g),
             b: srgb_to_linear(b),
-            a: srgb_to_linear(a),
+            a,
         }
     }
 
@@ -67,7 +58,7 @@ impl ColourWithAlpha {
             linear_to_srgb(self.r),
             linear_to_srgb(self.g),
             linear_to_srgb(self.b),
-            linear_to_srgb(self.a),
+            self.a,
         ])
     }
 
@@ -75,7 +66,7 @@ impl ColourWithAlpha {
         Rgba([self.r, self.g, self.b, self.a])
     }
 
-    pub fn mul_alpha_linear(self, mul: f32) -> Self {
+    pub fn mul_alpha(self, mul: f32) -> Self {
         Self {
             r: self.r,
             g: self.g,
@@ -277,7 +268,7 @@ impl ColourBuilder {
     /// - 1.0 for saturated
     /// - more than 1.0 for very/over saturated
     pub fn saturation(&mut self, saturation: f64) -> &mut Self {
-        self.c = 0.2 * saturation;
+        self.c = 0.2 * saturation.max(0.0);
         self
     }
 
@@ -287,7 +278,7 @@ impl ColourBuilder {
     /// - 1.0 for very light
     /// - 1.5 for blown-out white
     pub fn lightness(&mut self, lightness: f64) -> &mut Self {
-        self.l = lightness;
+        self.l = lightness.max(0.0);
         self
     }
 
