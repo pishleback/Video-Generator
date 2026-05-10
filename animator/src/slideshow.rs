@@ -1,5 +1,5 @@
 use crate::{
-    colour::ColourRgba,
+    colour::ColourWithAlpha,
     coords::{Length, Pos2, Rect, SCREEN_UNITS, Vec2},
     image::ImageSpec,
     interpolation::Interpable,
@@ -157,24 +157,19 @@ Options describing how shapes should look
 */
 #[derive(Debug, Clone)]
 pub struct ShapeVisualOptions {
-    fill_rgba: ColourRgba,
+    fill_rgba: ColourWithAlpha,
 }
 impl Default for ShapeVisualOptions {
     fn default() -> Self {
         Self {
-            fill_rgba: ColourRgba {
-                r: 1.0,
-                g: 1.0,
-                b: 1.0,
-                a: 1.0,
-            },
+            fill_rgba: ColourWithAlpha::from_linear(1.0, 1.0, 1.0, 1.0),
         }
     }
 }
 impl Interpable for ShapeVisualOptions {
     fn interp(x: &Self, y: &Self, f: f64) -> Self {
         Self {
-            fill_rgba: ColourRgba::interp(&x.fill_rgba, &y.fill_rgba, f),
+            fill_rgba: ColourWithAlpha::interp(&x.fill_rgba, &y.fill_rgba, f),
         }
     }
 }
@@ -429,12 +424,12 @@ impl<const W: u32, const H: u32> SlideshowState<W, H> {
 For building a slideshow animation object
 */
 pub struct SlideshowBuilder<const W: u32, const H: u32> {
-    background_colour: ColourRgba,
+    background_colour: ColourWithAlpha,
     states: Vec<SlideshowState<W, H>>,
 }
 
 impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
-    pub fn new(background_colour: ColourRgba) -> Self {
+    pub fn new(background_colour: ColourWithAlpha) -> Self {
         Self {
             background_colour,
             states: vec![],
@@ -703,7 +698,7 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
 
         struct ElementInstant<const W: u32, const H: u32> {
             shape: ShapeSpec,
-            fill: ColourRgba,
+            fill: ColourWithAlpha,
         }
 
         impl<const W: u32, const H: u32> MultiSlideElement<W, H> {
@@ -773,57 +768,42 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                     center,
                                     radius,
                                     options,
-                                } => {
-                                    let ColourRgba { r, g, b, a } =
-                                        options.visuals.at_time(to_slide_t).fill_rgba;
-                                    ElementInstant {
-                                        shape: ShapeSpec::Circle {
-                                            center: center.at_time(to_slide_t).pixels(),
-                                            radius: radius.at_time(to_slide_t).pixels(),
-                                        },
-                                        fill: ColourRgba {
-                                            r,
-                                            g,
-                                            b,
-                                            a: a * interp_frac,
-                                        },
-                                    }
-                                }
+                                } => ElementInstant {
+                                    shape: ShapeSpec::Circle {
+                                        center: center.at_time(to_slide_t).pixels(),
+                                        radius: radius.at_time(to_slide_t).pixels(),
+                                    },
+                                    fill: options
+                                        .visuals
+                                        .at_time(to_slide_t)
+                                        .fill_rgba
+                                        .mul_alpha_linear(interp_frac as f32),
+                                },
                                 TemporalSlideElement::Line {
                                     start,
                                     end,
                                     radius,
                                     options,
-                                } => {
-                                    let ColourRgba { r, g, b, a } =
-                                        options.visuals.at_time(to_slide_t).fill_rgba;
-                                    ElementInstant {
-                                        shape: ShapeSpec::Line {
-                                            point1: start.at_time(to_slide_t).pixels(),
-                                            point2: end.at_time(to_slide_t).pixels(),
-                                            radius: radius.at_time(to_slide_t).pixels(),
-                                        },
-                                        fill: ColourRgba {
-                                            r,
-                                            g,
-                                            b,
-                                            a: a * interp_frac,
-                                        },
-                                    }
-                                }
-                                TemporalSlideElement::Shape { shape, options } => {
-                                    let ColourRgba { r, g, b, a } =
-                                        options.visuals.at_time(to_slide_t).fill_rgba;
-                                    ElementInstant {
-                                        shape: shape.at_time(to_slide_t).clone(),
-                                        fill: ColourRgba {
-                                            r,
-                                            g,
-                                            b,
-                                            a: a * interp_frac,
-                                        },
-                                    }
-                                }
+                                } => ElementInstant {
+                                    shape: ShapeSpec::Line {
+                                        point1: start.at_time(to_slide_t).pixels(),
+                                        point2: end.at_time(to_slide_t).pixels(),
+                                        radius: radius.at_time(to_slide_t).pixels(),
+                                    },
+                                    fill: options
+                                        .visuals
+                                        .at_time(to_slide_t)
+                                        .fill_rgba
+                                        .mul_alpha_linear(interp_frac as f32),
+                                },
+                                TemporalSlideElement::Shape { shape, options } => ElementInstant {
+                                    shape: shape.at_time(to_slide_t).clone(),
+                                    fill: options
+                                        .visuals
+                                        .at_time(to_slide_t)
+                                        .fill_rgba
+                                        .mul_alpha_linear(interp_frac as f32),
+                                },
                             })
                         }
                         (Some(from_element), None) => {
@@ -838,57 +818,42 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                     center,
                                     radius,
                                     options,
-                                } => {
-                                    let ColourRgba { r, g, b, a } =
-                                        options.visuals.at_time(from_slide_t).fill_rgba;
-                                    ElementInstant {
-                                        shape: ShapeSpec::Circle {
-                                            center: center.at_time(from_slide_t).pixels(),
-                                            radius: radius.at_time(from_slide_t).pixels(),
-                                        },
-                                        fill: ColourRgba {
-                                            r,
-                                            g,
-                                            b,
-                                            a: a * (1.0 - interp_frac),
-                                        },
-                                    }
-                                }
+                                } => ElementInstant {
+                                    shape: ShapeSpec::Circle {
+                                        center: center.at_time(from_slide_t).pixels(),
+                                        radius: radius.at_time(from_slide_t).pixels(),
+                                    },
+                                    fill: options
+                                        .visuals
+                                        .at_time(to_slide_t)
+                                        .fill_rgba
+                                        .mul_alpha_linear(1.0 - interp_frac as f32),
+                                },
                                 TemporalSlideElement::Line {
                                     start,
                                     end,
                                     radius,
                                     options,
-                                } => {
-                                    let ColourRgba { r, g, b, a } =
-                                        options.visuals.at_time(from_slide_t).fill_rgba;
-                                    ElementInstant {
-                                        shape: ShapeSpec::Line {
-                                            point1: start.at_time(from_slide_t).pixels(),
-                                            point2: end.at_time(from_slide_t).pixels(),
-                                            radius: radius.at_time(from_slide_t).pixels(),
-                                        },
-                                        fill: ColourRgba {
-                                            r,
-                                            g,
-                                            b,
-                                            a: a * (1.0 - interp_frac),
-                                        },
-                                    }
-                                }
-                                TemporalSlideElement::Shape { shape, options } => {
-                                    let ColourRgba { r, g, b, a } =
-                                        options.visuals.at_time(from_slide_t).fill_rgba;
-                                    ElementInstant {
-                                        shape: shape.at_time(from_slide_t).clone(),
-                                        fill: ColourRgba {
-                                            r,
-                                            g,
-                                            b,
-                                            a: a * (1.0 - interp_frac),
-                                        },
-                                    }
-                                }
+                                } => ElementInstant {
+                                    shape: ShapeSpec::Line {
+                                        point1: start.at_time(from_slide_t).pixels(),
+                                        point2: end.at_time(from_slide_t).pixels(),
+                                        radius: radius.at_time(from_slide_t).pixels(),
+                                    },
+                                    fill: options
+                                        .visuals
+                                        .at_time(to_slide_t)
+                                        .fill_rgba
+                                        .mul_alpha_linear(1.0 - interp_frac as f32),
+                                },
+                                TemporalSlideElement::Shape { shape, options } => ElementInstant {
+                                    shape: shape.at_time(from_slide_t).clone(),
+                                    fill: options
+                                        .visuals
+                                        .at_time(to_slide_t)
+                                        .fill_rgba
+                                        .mul_alpha_linear(1.0 - interp_frac as f32),
+                                },
                             })
                         }
                         (Some(from_element), Some(to_element)) => {
@@ -1140,15 +1105,11 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                         InstantaneousSlideElement::Shape {
                                             shape, visuals, ..
                                         } => {
-                                            let ColourRgba { r, g, b, a } = visuals.fill_rgba;
                                             elements.push(ElementInstant {
                                                 shape,
-                                                fill: ColourRgba {
-                                                    r,
-                                                    g,
-                                                    b,
-                                                    a: interp_frac * a,
-                                                },
+                                                fill: visuals
+                                                    .fill_rgba
+                                                    .mul_alpha_linear(interp_frac as f32),
                                             });
                                         }
                                     }
@@ -1171,15 +1132,11 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                         InstantaneousSlideElement::Shape {
                                             shape, visuals, ..
                                         } => {
-                                            let ColourRgba { r, g, b, a } = visuals.fill_rgba;
                                             elements.push(ElementInstant {
                                                 shape,
-                                                fill: ColourRgba {
-                                                    r,
-                                                    g,
-                                                    b,
-                                                    a: (1.0 - interp_frac) * a,
-                                                },
+                                                fill: visuals
+                                                    .fill_rgba
+                                                    .mul_alpha_linear(interp_frac as f32),
                                             });
                                         }
                                     }
@@ -1193,10 +1150,9 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                 .collect::<Vec<_>>();
 
             // TODO: custom options for how to sort
-            // for now, sort by lightness
+            // for now, sort by relative luminance
             instant_elements.sort_by_cached_key(|instant_element| {
-                let ColourRgba { r, g, b, a: _ } = instant_element.fill;
-                OrderedFloat(0.299 * r + 0.587 * g + 0.114 * b)
+                OrderedFloat(instant_element.fill.to_relative_luminance())
             });
 
             for instant_element in instant_elements {
@@ -1207,7 +1163,6 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                     let max = (max.0.ceil() as u32, max.1.ceil() as u32);
                     let width = max.0 - min.0;
                     let height = max.1 - min.1;
-                    let ColourRgba { r, g, b, a } = instant_element.fill;
                     layers.push(Layer {
                         top_left: (min.0 as f64, min.1 as f64),
                         image: instant_element
@@ -1216,8 +1171,8 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                             .image(
                                 width,
                                 height,
-                                ColourRgba { r, g, b, a: 0.0 },
-                                ColourRgba { r, g, b, a },
+                                instant_element.fill.mul_alpha_linear(0.0),
+                                instant_element.fill,
                             ),
                     });
                 }
@@ -1461,7 +1416,7 @@ impl CanvasCircle {
         self
     }
 
-    pub fn fill_rgba(&mut self, fill_rgba: ColourRgba) -> &mut Self {
+    pub fn fill_rgba(&mut self, fill_rgba: ColourWithAlpha) -> &mut Self {
         self.visuals.fill_rgba = fill_rgba;
         self
     }
@@ -1509,7 +1464,7 @@ impl CanvasLine {
         self
     }
 
-    pub fn fill_rgba(&mut self, fill_rgba: ColourRgba) -> &mut Self {
+    pub fn fill_rgba(&mut self, fill_rgba: ColourWithAlpha) -> &mut Self {
         self.visuals.fill_rgba = fill_rgba;
         self
     }
@@ -1580,7 +1535,7 @@ impl CanvasShape {
         self
     }
 
-    pub fn fill_rgba(&mut self, fill_rgba: ColourRgba) -> &mut Self {
+    pub fn fill_rgba(&mut self, fill_rgba: ColourWithAlpha) -> &mut Self {
         self.visuals.fill_rgba = fill_rgba;
         self
     }

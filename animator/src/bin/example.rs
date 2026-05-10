@@ -1,16 +1,12 @@
 use animator::{
-    colour::{ColourRgb, ColourRgba},
+    colour::{Colour, ColourWithAlpha},
     slideshow::SlideshowBuilder,
 };
 use std::path::Path;
 
 fn main() {
-    let mut slideshow = SlideshowBuilder::<1920, 1080>::new(ColourRgba {
-        r: 0.0,
-        g: 0.0,
-        b: 0.0,
-        a: 1.0,
-    });
+    let mut slideshow =
+        SlideshowBuilder::<1920, 1080>::new(ColourWithAlpha::from_srgb(0.0, 0.0, 0.0, 1.0));
 
     slideshow
         .slide(|slide| {
@@ -34,12 +30,7 @@ fn main() {
                     group.circle((2.0, 2.0), 0.2);
                     group
                         .circle((-2.0, 2.0 * (5.0 * t).sin()), 0.2)
-                        .fill_rgba(ColourRgba {
-                            r: 1.0,
-                            g: 0.0,
-                            b: 0.5,
-                            a: 1.0,
-                        });
+                        .fill_rgba(ColourWithAlpha::from_srgb(1.0, 0.0, 0.5, 1.0));
                     group.circle((2.0, -2.0), 0.2);
                     group.circle((-2.0, -2.0), 0.2);
                 }
@@ -70,7 +61,7 @@ fn main() {
                     for a in 0..6 {
                         for b in 0..a {
                             picture.line(pts[a], pts[b], 0.1).fill_rgba(
-                                ColourRgb::from_hsl(10.0 * (a as f64 + 6.0 * b as f64), 1.0, 0.5)
+                                Colour::from_hsl(10.0 * (a as f64 + 6.0 * b as f64), 1.0, 0.5)
                                     .alpha(1.0),
                             );
                         }
@@ -114,7 +105,7 @@ fn main() {
                     for a in 0..6 {
                         for b in 0..a {
                             picture.line(pts[a], pts[b], 0.1).fill_rgba(
-                                ColourRgb::from_hsl(10.0 * (a as f64 + 6.0 * b as f64), 1.0, 0.5)
+                                Colour::from_hsl(10.0 * (a as f64 + 6.0 * b as f64), 1.0, 0.5)
                                     .alpha(1.0),
                             );
                         }

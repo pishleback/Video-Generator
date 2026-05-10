@@ -2,7 +2,7 @@ use animator::{
     animation::{
         Animation, AnimationElement, BoundaryMode, ShapeElement, SubVideoElement, SubVideoSource,
     },
-    colour::{ColourRgb, ColourRgba},
+    colour::{Colour, ColourWithAlpha},
     coords::{Length, Rect, Vec2},
     image::{ImageSpec, LatexImage},
     interpolation::InterpType,
@@ -32,12 +32,7 @@ fn main() {
     const HEIGHT: u32 = 1080;
     const FPS: f64 = 2.0;
 
-    let mut anim = Animation::<WIDTH, HEIGHT>::new(ColourRgba {
-        r: 0.0,
-        g: 0.0,
-        b: 0.0,
-        a: 1.0,
-    });
+    let mut anim = Animation::<WIDTH, HEIGHT>::new(ColourWithAlpha::from_srgb(0.0, 0.0, 0.0, 1.0));
 
     let elem1 = anim.add_shape(ShapeSpec::latex(
         r#"\frac{-b \pm \sqrt{b^2 - 4ac}}{2a}"#.to_string(),
@@ -46,11 +41,7 @@ fn main() {
     elem1.set_boundary_rgb(
         t,
         None,
-        ColourRgb {
-            r: 1.0,
-            g: 1.0,
-            b: 1.0,
-        },
+        Colour::from_srgb(1.0, 1.0, 1.0),
         InterpType::Initial,
     );
     elem1.set_boundary_alpha(t, None, 1.0, InterpType::Initial);

@@ -3,35 +3,134 @@ use core::f64;
 use image::{Rgb, Rgba};
 use serde::{Deserialize, Serialize};
 
-// linear RGBA space
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct ColourRgba {
-    pub r: f64,
-    pub g: f64,
-    pub b: f64,
-    pub a: f64,
-}
+use crate::interpolation::Interpable;
 
-impl ColourRgba {
-    pub fn to_rgba(&self) -> Rgba<u8> {
-        Rgba([
-            (self.r * 255.0) as u8,
-            (self.g * 255.0) as u8,
-            (self.b * 255.0) as u8,
-            (self.a * 255.0) as u8,
-        ])
+pub(crate) fn srgb_to_linear(c: f32) -> f32 {
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
     }
 }
 
-// linear RGB space
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct ColourRgb {
-    pub r: f64,
-    pub g: f64,
-    pub b: f64,
+pub(crate) fn linear_to_srgb(c: f32) -> f32 {
+    if c <= 0.0031308 {
+        c * 12.92
+    } else {
+        1.055 * c.powf(1.0 / 2.4) - 0.055
+    }
 }
 
-impl ColourRgb {
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ColourWithAlpha {
+    // linear colour space
+    r: f32,
+    g: f32,
+    b: f32,
+    a: f32,
+}
+
+impl ColourWithAlpha {
+    pub fn from_colour_and_srgb_alpha(colour: Colour, alpha: f32) -> Self {
+        Self {
+            r: colour.r,
+            g: colour.g,
+            b: colour.b,
+            a: srgb_to_linear(alpha),
+        }
+    }
+
+    pub fn from_colour_and_linear_alpha(colour: Colour, alpha: f32) -> Self {
+        Self {
+            r: colour.r,
+            g: colour.g,
+            b: colour.b,
+            a: alpha,
+        }
+    }
+
+    pub fn from_linear(r: f32, g: f32, b: f32, a: f32) -> Self {
+        Self { r, g, b, a }
+    }
+
+    pub fn from_srgb(r: f32, g: f32, b: f32, a: f32) -> Self {
+        Self {
+            r: srgb_to_linear(r),
+            g: srgb_to_linear(g),
+            b: srgb_to_linear(b),
+            a: srgb_to_linear(a),
+        }
+    }
+
+    pub fn to_srgb_f32(&self) -> Rgba<f32> {
+        Rgba([
+            linear_to_srgb(self.r),
+            linear_to_srgb(self.g),
+            linear_to_srgb(self.b),
+            linear_to_srgb(self.a),
+        ])
+    }
+
+    pub fn to_linear_f32(&self) -> Rgba<f32> {
+        Rgba([self.r, self.g, self.b, self.a])
+    }
+
+    pub fn mul_alpha_linear(self, mul: f32) -> Self {
+        Self {
+            r: self.r,
+            g: self.g,
+            b: self.b,
+            a: self.a * mul,
+        }
+    }
+
+    pub fn to_relative_luminance(&self) -> f32 {
+        Colour {
+            r: self.r,
+            g: self.g,
+            b: self.b,
+        }
+        .to_relative_luminance()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Colour {
+    // linear colour space
+    r: f32,
+    g: f32,
+    b: f32,
+}
+
+impl Colour {
+    pub fn from_linear(r: f32, g: f32, b: f32) -> Self {
+        Self { r, g, b }
+    }
+
+    pub fn from_srgb(r: f32, g: f32, b: f32) -> Self {
+        Self {
+            r: srgb_to_linear(r),
+            g: srgb_to_linear(g),
+            b: srgb_to_linear(b),
+        }
+    }
+
+    pub fn to_srgb_f32(&self) -> Rgb<f32> {
+        Rgb([
+            linear_to_srgb(self.r),
+            linear_to_srgb(self.g),
+            linear_to_srgb(self.b),
+        ])
+    }
+
+    pub fn to_linear_f32(&self) -> Rgb<f32> {
+        Rgb([self.r, self.g, self.b])
+    }
+
+    pub fn to_relative_luminance(&self) -> f32 {
+        0.2126 * self.r + 0.7152 * self.g + 0.0722 * self.b
+    }
+
     /// h: 0.0..360.0
     /// s: 0.0..1.0
     /// l: 0.0..1.0
@@ -53,9 +152,9 @@ impl ColourRgb {
         let m = l - c / 2.0;
 
         Self {
-            r: r1 + m,
-            g: g1 + m,
-            b: b1 + m,
+            r: (r1 + m) as f32,
+            g: (g1 + m) as f32,
+            b: (b1 + m) as f32,
         }
     }
 
@@ -71,9 +170,9 @@ impl ColourRgb {
         if chroma < 1e-6 {
             let rgb = oklab::oklab_to_linear_srgb(oklab::Oklab { l, a, b });
             return Self {
-                r: rgb.r.clamp(0.0, 1.0) as f64,
-                g: rgb.g.clamp(0.0, 1.0) as f64,
-                b: rgb.b.clamp(0.0, 1.0) as f64,
+                r: rgb.r.clamp(0.0, 1.0),
+                g: rgb.g.clamp(0.0, 1.0),
+                b: rgb.b.clamp(0.0, 1.0),
             };
         }
 
@@ -112,9 +211,9 @@ impl ColourRgb {
         });
 
         Self {
-            r: rgb.r.clamp(0.0, 1.0) as f64,
-            g: rgb.g.clamp(0.0, 1.0) as f64,
-            b: rgb.b.clamp(0.0, 1.0) as f64,
+            r: rgb.r.clamp(0.0, 1.0),
+            g: rgb.g.clamp(0.0, 1.0),
+            b: rgb.b.clamp(0.0, 1.0),
         }
     }
 
@@ -137,20 +236,20 @@ impl ColourRgb {
         Self::from_oklab(l, c * h.cos(), c * h.sin())
     }
 
-    pub fn to_rgb(&self) -> Rgb<u8> {
+    pub fn to_srgb(&self) -> Rgb<u8> {
         Rgb([
-            (self.r * 255.0) as u8,
-            (self.g * 255.0) as u8,
-            (self.b * 255.0) as u8,
+            (linear_to_srgb(self.r) * 255.0) as u8,
+            (linear_to_srgb(self.g) * 255.0) as u8,
+            (linear_to_srgb(self.b) * 255.0) as u8,
         ])
     }
 
-    pub fn alpha(&self, alpha: f64) -> ColourRgba {
-        ColourRgba {
+    pub fn alpha(&self, alpha: f64) -> ColourWithAlpha {
+        ColourWithAlpha {
             r: self.r,
             g: self.g,
             b: self.b,
-            a: alpha,
+            a: alpha as f32,
         }
     }
 }
@@ -159,7 +258,7 @@ impl ColourRgb {
 pub struct ColourBuilder {
     l: f64,
     c: f64,
-    h: f64,
+    h: Option<f64>,
 }
 
 impl ColourBuilder {
@@ -167,8 +266,8 @@ impl ColourBuilder {
     pub fn new() -> Self {
         Self {
             l: 0.5,
-            c: 0.0,
-            h: 0.0,
+            c: 0.2,
+            h: None,
         }
     }
 
@@ -193,7 +292,7 @@ impl ColourBuilder {
     }
 
     pub fn hue_rad(&mut self, hue_rad: f64) -> &mut Self {
-        self.h = hue_rad;
+        self.h = Some(hue_rad);
         self
     }
 
@@ -212,7 +311,7 @@ impl ColourBuilder {
     ///  - 325 for pink
     ///  - 345 for purple
     pub fn hue_deg(&mut self, hue_deg: f64) -> &mut Self {
-        self.h = f64::consts::TAU * hue_deg / 360.0;
+        self.h = Some(f64::consts::TAU * hue_deg / 360.0);
         self
     }
 
@@ -286,7 +385,32 @@ impl ColourBuilder {
         self
     }
 
-    pub fn finish(&self) -> ColourRgb {
-        ColourRgb::from_oklch(self.l, self.c, self.h)
+    pub fn finish(&self) -> Colour {
+        if let Some(h) = self.h {
+            Colour::from_oklch(self.l, self.c, h)
+        } else {
+            Colour::from_oklch(self.l, 0.0, 0.0)
+        }
+    }
+}
+
+impl Interpable for ColourWithAlpha {
+    fn interp(x: &ColourWithAlpha, y: &ColourWithAlpha, f: f64) -> ColourWithAlpha {
+        ColourWithAlpha {
+            r: f32::interp(&x.r, &y.r, f),
+            g: f32::interp(&x.g, &y.g, f),
+            b: f32::interp(&x.b, &y.b, f),
+            a: f32::interp(&x.a, &y.a, f),
+        }
+    }
+}
+
+impl Interpable for Colour {
+    fn interp(x: &Colour, y: &Colour, f: f64) -> Colour {
+        Colour {
+            r: f32::interp(&x.r, &y.r, f),
+            g: f32::interp(&x.g, &y.g, f),
+            b: f32::interp(&x.b, &y.b, f),
+        }
     }
 }

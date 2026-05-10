@@ -1,21 +1,20 @@
 use animator::{
-    colour::{ColourBuilder, ColourRgb, ColourRgba},
-    slideshow::{AlignOptions, SlideshowBuilder},
+    colour::{ColourBuilder, ColourWithAlpha},
+    image::ImageSpec,
+    slideshow::SlideshowBuilder,
 };
 use core::f64;
 use std::path::Path;
 
 fn main() {
-    let mut slideshow = SlideshowBuilder::<1920, 1080>::new(ColourRgba {
-        r: 0.0,
-        g: 0.0,
-        b: 0.0,
-        a: 1.0,
-    });
+    let mut slideshow =
+        SlideshowBuilder::<1920, 1080>::new(ColourWithAlpha::from_srgb(0.0, 0.0, 0.0, 1.0));
 
     slideshow
         .slide(|slide| {
             slide.canvas(|canvas, t| {
+                println!("{:?}", t);
+
                 let c = (0.2 * t) % 1.0;
                 for x in 0..20 {
                     for y in 0..20 {
@@ -38,7 +37,7 @@ fn main() {
 
                 canvas
                     .latex(format!(
-                        "\\texttt{{{:.0} {:.0}}}",
+                        "\\texttt{{{:.0} {:.1}}}",
                         c * 360.0,
                         c * f64::consts::TAU
                     ))
@@ -48,8 +47,20 @@ fn main() {
         })
         .duration(5.0);
 
-    let video = slideshow.video(60.0);
+    let video = slideshow.video(20.0);
     let path = video.make_path();
     std::fs::copy(path.clone(), Path::new("outputs/out.mp4")).unwrap();
     println!("Done :)");
+
+    ImageSpec::Filled {
+        width: 100,
+        height: 100,
+        colour: ColourBuilder::new()
+            .gold()
+            .saturation(1.0)
+            .lightness(0.5)
+            .finish()
+            .alpha(1.0),
+    }
+    .make_image(Path::new("outputs/img.png"));
 }

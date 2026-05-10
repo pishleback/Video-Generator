@@ -1,8 +1,6 @@
-use ordered_float::OrderedFloat;
-
 use crate::{
     audio::AudioSpec,
-    colour::{ColourRgb, ColourRgba},
+    colour::{Colour, ColourWithAlpha},
     coords::{Length, Pos2, Rect, SCREEN_UNITS, Vec2},
     image::ImageSpec,
     interpolation::InterpType,
@@ -11,11 +9,12 @@ use crate::{
     video::{VideoAudioClip, VideoCompiledSpec, VideoSpec},
 };
 use core::f64;
+use ordered_float::OrderedFloat;
 use std::fmt::Debug;
 use std::{cell::RefCell, rc::Rc};
 
 pub trait AnimationElement<const WIDTH: u32, const HEIGHT: u32>: 'static {
-    fn get_draw_ordering(&self, t: f64) -> (OrderedFloat<f64>, OrderedFloat<f64>); // for draw ordering
+    fn get_draw_ordering(&self, t: f64) -> (OrderedFloat<f64>, OrderedFloat<f32>); // for draw ordering
     fn set_within_rect(&self, t: f64, rect: Rect<WIDTH, HEIGHT>, interp: InterpType);
     fn apply(&self, t: f64, image_spec: ImageSpec) -> ImageSpec;
 }
@@ -33,10 +32,10 @@ pub struct ShapeElement<const WIDTH: u32, const HEIGHT: u32> {
     origin: RefCell<InterpTimeline<(f64, f64)>>, // in shape coordinates where is the center
     position: RefCell<InterpTimeline<Pos2<WIDTH, HEIGHT>>>, // as parts per thousand of the view
     scale: RefCell<InterpTimeline<Length<WIDTH, HEIGHT>>>,
-    fill_rgb: RefCell<InterpTimeline<ColourRgb>>,
+    fill_rgb: RefCell<InterpTimeline<Colour>>,
     fill_alpha: RefCell<InterpTimeline<f64>>,
     boundary_thickness: RefCell<InterpTimeline<Length<WIDTH, HEIGHT>>>,
-    boundary_rgb: RefCell<InterpTimeline<ColourRgb>>,
+    boundary_rgb: RefCell<InterpTimeline<Colour>>,
     boundary_alpha: RefCell<InterpTimeline<f64>>,
     boundary_frac_1: RefCell<InterpTimeline<f64>>,
     boundary_frac_2: RefCell<InterpTimeline<f64>>,
@@ -77,7 +76,7 @@ impl<const WIDTH: u32, const HEIGHT: u32> ShapeElement<WIDTH, HEIGHT> {
         self.scale.borrow_mut().set(t, from, to, interp);
     }
 
-    pub fn set_fill_rgb(&self, t: f64, from: Option<ColourRgb>, to: ColourRgb, interp: InterpType) {
+    pub fn set_fill_rgb(&self, t: f64, from: Option<Colour>, to: Colour, interp: InterpType) {
         self.fill_rgb.borrow_mut().set(t, from, to, interp);
     }
 
@@ -97,13 +96,7 @@ impl<const WIDTH: u32, const HEIGHT: u32> ShapeElement<WIDTH, HEIGHT> {
             .set(t, from, to, interp);
     }
 
-    pub fn set_boundary_rgb(
-        &self,
-        t: f64,
-        from: Option<ColourRgb>,
-        to: ColourRgb,
-        interp: InterpType,
-    ) {
+    pub fn set_boundary_rgb(&self, t: f64, from: Option<Colour>, to: Colour, interp: InterpType) {
         self.boundary_rgb.borrow_mut().set(t, from, to, interp);
     }
 
@@ -147,13 +140,10 @@ impl<const WIDTH: u32, const HEIGHT: u32> ShapeElement<WIDTH, HEIGHT> {
 impl<const WIDTH: u32, const HEIGHT: u32> AnimationElement<WIDTH, HEIGHT>
     for ShapeElement<WIDTH, HEIGHT>
 {
-    fn get_draw_ordering(&self, t: f64) -> (OrderedFloat<f64>, OrderedFloat<f64>) {
+    fn get_draw_ordering(&self, t: f64) -> (OrderedFloat<f64>, OrderedFloat<f32>) {
         // base depth on brightness
-        let ColourRgb { r, g, b } = self.fill_rgb.borrow().at_time(t);
-        (
-            self.draw_ordering.borrow().at_time(t),
-            (0.299 * r + 0.587 * g + 0.114 * b).into(),
-        )
+        let l = self.fill_rgb.borrow().at_time(t).to_relative_luminance();
+        (self.draw_ordering.borrow().at_time(t), l.into())
     }
 
     fn apply(&self, t: f64, image_spec: ImageSpec) -> ImageSpec {
@@ -199,18 +189,8 @@ impl<const WIDTH: u32, const HEIGHT: u32> AnimationElement<WIDTH, HEIGHT>
                 shape.image(
                     WIDTH,
                     HEIGHT,
-                    ColourRgba {
-                        r: fill_rgb.r,
-                        g: fill_rgb.g,
-                        b: fill_rgb.b,
-                        a: 0.0,
-                    },
-                    ColourRgba {
-                        r: fill_rgb.r,
-                        g: fill_rgb.g,
-                        b: fill_rgb.b,
-                        a: fill_alpha,
-                    },
+                    ColourWithAlpha::from_colour_and_linear_alpha(fill_rgb, 0.0),
+                    ColourWithAlpha::from_colour_and_linear_alpha(fill_rgb, fill_alpha as f32),
                 )
             }));
         }
@@ -219,18 +199,11 @@ impl<const WIDTH: u32, const HEIGHT: u32> AnimationElement<WIDTH, HEIGHT>
                 shape_boundary.image(
                     WIDTH,
                     HEIGHT,
-                    ColourRgba {
-                        r: boundary_rgb.r,
-                        g: boundary_rgb.g,
-                        b: boundary_rgb.b,
-                        a: 0.0,
-                    },
-                    ColourRgba {
-                        r: boundary_rgb.r,
-                        g: boundary_rgb.g,
-                        b: boundary_rgb.b,
-                        a: boundary_alpha,
-                    },
+                    ColourWithAlpha::from_colour_and_linear_alpha(boundary_rgb, 0.0),
+                    ColourWithAlpha::from_colour_and_linear_alpha(
+                        boundary_rgb,
+                        boundary_alpha as f32,
+                    ),
                 )
             }));
         }
@@ -310,7 +283,7 @@ impl<const WIDTH: u32, const HEIGHT: u32> ShapeElementCollection<WIDTH, HEIGHT> 
         }
     }
 
-    pub fn set_fill_rgb(&self, t: f64, from: Option<ColourRgb>, to: ColourRgb, interp: InterpType) {
+    pub fn set_fill_rgb(&self, t: f64, from: Option<Colour>, to: Colour, interp: InterpType) {
         for elem in &self.shape_elements {
             elem.set_fill_rgb(t, from, to, interp);
         }
@@ -334,13 +307,7 @@ impl<const WIDTH: u32, const HEIGHT: u32> ShapeElementCollection<WIDTH, HEIGHT> 
         }
     }
 
-    pub fn set_boundary_rgb(
-        &self,
-        t: f64,
-        from: Option<ColourRgb>,
-        to: ColourRgb,
-        interp: InterpType,
-    ) {
+    pub fn set_boundary_rgb(&self, t: f64, from: Option<Colour>, to: Colour, interp: InterpType) {
         for elem in &self.shape_elements {
             elem.set_boundary_rgb(t, from, to, interp);
         }
@@ -496,7 +463,7 @@ impl<const WIDTH: u32, const HEIGHT: u32> SubVideoElement<WIDTH, HEIGHT> {
 impl<const WIDTH: u32, const HEIGHT: u32> AnimationElement<WIDTH, HEIGHT>
     for SubVideoElement<WIDTH, HEIGHT>
 {
-    fn get_draw_ordering(&self, t: f64) -> (OrderedFloat<f64>, OrderedFloat<f64>) {
+    fn get_draw_ordering(&self, t: f64) -> (OrderedFloat<f64>, OrderedFloat<f32>) {
         (self.draw_ordering.borrow().at_time(t), 0.0.into())
     }
 
@@ -550,7 +517,7 @@ pub struct Animation<const WIDTH: u32, const HEIGHT: u32> {
 }
 
 impl<const WIDTH: u32, const HEIGHT: u32> Animation<WIDTH, HEIGHT> {
-    pub fn new(default_bg: ColourRgba) -> Self {
+    pub fn new(default_bg: ColourWithAlpha) -> Self {
         Self {
             default_image: ImageSpec::Filled {
                 width: WIDTH,
@@ -572,20 +539,12 @@ impl<const WIDTH: u32, const HEIGHT: u32> Animation<WIDTH, HEIGHT> {
             origin: RefCell::new(InterpTimeline::new((0.0, 0.0))),
             position: RefCell::new(InterpTimeline::new(Rect::fullscreen().center())),
             scale: RefCell::new(InterpTimeline::new(Length::from_units(SCREEN_UNITS / 2.0))),
-            fill_rgb: RefCell::new(InterpTimeline::new(ColourRgb {
-                r: 1.0,
-                g: 1.0,
-                b: 1.0,
-            })),
+            fill_rgb: RefCell::new(InterpTimeline::new(Colour::from_linear(1.0, 1.0, 1.0))),
             fill_alpha: RefCell::new(InterpTimeline::new(0.0)),
             boundary_thickness: RefCell::new(InterpTimeline::new(Length::from_units(
                 0.001 * SCREEN_UNITS,
             ))),
-            boundary_rgb: RefCell::new(InterpTimeline::new(ColourRgb {
-                r: 1.0,
-                g: 1.0,
-                b: 1.0,
-            })),
+            boundary_rgb: RefCell::new(InterpTimeline::new(Colour::from_linear(1.0, 1.0, 1.0))),
             boundary_alpha: RefCell::new(InterpTimeline::new(0.0)),
             boundary_frac_1: RefCell::new(InterpTimeline::new(0.0)),
             boundary_frac_2: RefCell::new(InterpTimeline::new(1.0)),

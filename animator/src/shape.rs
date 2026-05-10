@@ -1,6 +1,6 @@
 use crate::data::{FileSpec, cache};
 use crate::image::LatexImage;
-use crate::{colour::ColourRgba, image::ImageSpec};
+use crate::{colour::ColourWithAlpha, image::ImageSpec};
 use geo::algorithm::contains::Contains;
 use geo::{
     AffineOps, AffineTransform, Area, BooleanOps, BoundingRect, Buffer, Coord, Distance, Euclidean,
@@ -12,7 +12,6 @@ use image::{GrayImage, Luma};
 use imageproc::contours::{BorderType, Contour, find_contours};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use tiny_skia::{Color, FillRule, Paint, PathBuilder, Pixmap, Transform};
 
 const EPSILON: f64 = 10e-10;
 
@@ -203,8 +202,8 @@ impl ShapeSpec {
         &self,
         width: u32,
         height: u32,
-        bg_colour: ColourRgba,
-        shape_colour: ColourRgba,
+        bg_colour: ColourWithAlpha,
+        shape_colour: ColourWithAlpha,
     ) -> ImageSpec {
         ImageSpec::Shape(ShapeImage {
             width,
@@ -562,28 +561,27 @@ impl ShapeData {
 pub struct ShapeImage {
     pub width: u32,
     pub height: u32,
-    pub bg_colour: ColourRgba,
-    pub shape_colour: ColourRgba,
+    pub bg_colour: ColourWithAlpha,
+    pub shape_colour: ColourWithAlpha,
     pub shape: Box<ShapeSpec>,
 }
 
 impl ShapeImage {
     pub fn image(&self) -> DynamicImage {
+        use tiny_skia::{Color, FillRule, Paint, PathBuilder, Pixmap, Transform};
+
         let width = self.width;
         let height = self.height;
 
         let mut pixmap = Pixmap::new(width, height).expect("failed to create pixmap");
 
+        let to_tiny_skia_colour = |colour: ColourWithAlpha| {
+            let colour = colour.to_linear_f32();
+            Color::from_rgba(colour[0], colour[1], colour[2], colour[3]).unwrap()
+        };
+
         // background fill
-        pixmap.fill(
-            Color::from_rgba(
-                self.bg_colour.r as f32,
-                self.bg_colour.g as f32,
-                self.bg_colour.b as f32,
-                self.bg_colour.a as f32,
-            )
-            .unwrap(),
-        );
+        pixmap.fill(to_tiny_skia_colour(self.bg_colour));
 
         let shape = self.shape.shape();
 
@@ -622,15 +620,7 @@ impl ShapeImage {
         let path = pb.finish().expect("invalid path");
 
         let mut paint = Paint::default();
-        paint.set_color(
-            Color::from_rgba(
-                self.shape_colour.r as f32,
-                self.shape_colour.g as f32,
-                self.shape_colour.b as f32,
-                self.shape_colour.a as f32,
-            )
-            .unwrap(),
-        );
+        paint.set_color(to_tiny_skia_colour(self.shape_colour));
 
         pixmap.fill_path(
             &path,

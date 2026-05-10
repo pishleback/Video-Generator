@@ -1,4 +1,3 @@
-use crate::colour::{ColourRgb, ColourRgba};
 use std::fmt::Debug;
 
 const DEFAULT_DURATION: f64 = 0.5;
@@ -19,30 +18,21 @@ impl Interpable for f64 {
     }
 }
 
+impl Interpable for f32 {
+    fn interp(x: &f32, y: &f32, f: f64) -> f32 {
+        if f <= 0.0 {
+            *x
+        } else if f >= 1.0 {
+            *y
+        } else {
+            x + f as f32 * (y - x)
+        }
+    }
+}
+
 impl<V1: Interpable, V2: Interpable> Interpable for (V1, V2) {
     fn interp(x: &(V1, V2), y: &(V1, V2), f: f64) -> (V1, V2) {
         (V1::interp(&x.0, &y.0, f), V2::interp(&x.1, &y.1, f))
-    }
-}
-
-impl Interpable for ColourRgba {
-    fn interp(x: &ColourRgba, y: &ColourRgba, f: f64) -> ColourRgba {
-        ColourRgba {
-            r: f64::interp(&x.r, &y.r, f),
-            g: f64::interp(&x.g, &y.g, f),
-            b: f64::interp(&x.b, &y.b, f),
-            a: f64::interp(&x.a, &y.a, f),
-        }
-    }
-}
-
-impl Interpable for ColourRgb {
-    fn interp(x: &ColourRgb, y: &ColourRgb, f: f64) -> ColourRgb {
-        ColourRgb {
-            r: f64::interp(&x.r, &y.r, f),
-            g: f64::interp(&x.g, &y.g, f),
-            b: f64::interp(&x.b, &y.b, f),
-        }
     }
 }
 

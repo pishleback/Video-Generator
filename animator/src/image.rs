@@ -1,10 +1,10 @@
 use crate::{
-    colour::ColourRgba,
+    colour::{ColourWithAlpha, linear_to_srgb, srgb_to_linear},
     data::{FileSpec, cache},
     shape::ShapeImage,
     video::VideoSpec,
 };
-use image::{DynamicImage, ImageBuffer, RgbaImage, imageops::FilterType};
+use image::{DynamicImage, ImageBuffer, Rgba32FImage, imageops::FilterType};
 use serde::{Deserialize, Serialize};
 use std::{
     io::Write,
@@ -16,7 +16,7 @@ pub enum ImageSpec {
     Filled {
         width: u32,
         height: u32,
-        colour: ColourRgba,
+        colour: ColourWithAlpha,
     },
     Resize {
         image: Box<ImageSpec>,
@@ -39,15 +39,7 @@ impl ImageSpec {
     pub fn make_image(&self, path: &Path) {
         match self {
             ImageSpec::Latex(x) => x.make_image(path),
-            ImageSpec::Filled {
-                width,
-                height,
-                colour,
-            } => {
-                let img = ImageBuffer::from_fn(*width, *height, |_x, _y| colour.to_rgba());
-                img.save(path).unwrap();
-            }
-            _ => self.image().save(path).unwrap(),
+            _ => self.image().to_rgba8().save(path).unwrap(),
         }
     }
 
@@ -68,24 +60,13 @@ impl ImageSpec {
             } => image
                 .image()
                 .resize_exact(*width, *height, FilterType::CatmullRom),
+            ImageSpec::Filled {
+                width,
+                height,
+                colour,
+            } => ImageBuffer::from_fn(*width, *height, |_x, _y| colour.to_srgb_f32()).into(),
             ImageSpec::BlitStack { base, layers } => {
-                fn srgb_to_linear(c: f32) -> f32 {
-                    if c <= 0.04045 {
-                        c / 12.92
-                    } else {
-                        ((c + 0.055) / 1.055).powf(2.4)
-                    }
-                }
-
-                fn linear_to_srgb(c: f32) -> f32 {
-                    if c <= 0.0031308 {
-                        c * 12.92
-                    } else {
-                        1.055 * c.powf(1.0 / 2.4) - 0.055
-                    }
-                }
-
-                fn blit_linear(dst: &mut RgbaImage, src: &RgbaImage, ox: i64, oy: i64) {
+                fn blit_linear(dst: &mut Rgba32FImage, src: &Rgba32FImage, ox: i64, oy: i64) {
                     let (dw, dh) = dst.dimensions();
 
                     for sy in 0..src.height() {
@@ -104,18 +85,13 @@ impl ImageSpec {
                             let dp = dst.get_pixel_mut(dx as u32, dy as u32);
 
                             // source in linear premultiplied
-                            let (sr, sg, sb, sa) = (
-                                sp[0] as f32 / 255.0,
-                                sp[1] as f32 / 255.0,
-                                sp[2] as f32 / 255.0,
-                                sp[3] as f32 / 255.0,
-                            );
+                            let (sr, sg, sb, sa) = (sp[0], sp[1], sp[2], sp[3]);
 
                             // destination in linear premultiplied
-                            let da = dp[3] as f32 / 255.0;
-                            let dr = srgb_to_linear(dp[0] as f32 / 255.0) * da;
-                            let dg = srgb_to_linear(dp[1] as f32 / 255.0) * da;
-                            let db = srgb_to_linear(dp[2] as f32 / 255.0) * da;
+                            let da = dp[3];
+                            let dr = srgb_to_linear(dp[0]) * da;
+                            let dg = srgb_to_linear(dp[1]) * da;
+                            let db = srgb_to_linear(dp[2]) * da;
 
                             // Porter-Duff "over" (premultiplied alpha)
                             let out_a = sa + da * (1.0 - sa);
@@ -125,26 +101,23 @@ impl ImageSpec {
 
                             if out_a > 0.0 {
                                 let inv_a = 1.0 / out_a;
-                                dp[0] =
-                                    (linear_to_srgb((out_r * inv_a).clamp(0.0, 1.0)) * 255.0) as u8;
-                                dp[1] =
-                                    (linear_to_srgb((out_g * inv_a).clamp(0.0, 1.0)) * 255.0) as u8;
-                                dp[2] =
-                                    (linear_to_srgb((out_b * inv_a).clamp(0.0, 1.0)) * 255.0) as u8;
-                                dp[3] = (out_a * 255.0) as u8;
+                                dp[0] = linear_to_srgb((out_r * inv_a).clamp(0.0, 1.0));
+                                dp[1] = linear_to_srgb((out_g * inv_a).clamp(0.0, 1.0));
+                                dp[2] = linear_to_srgb((out_b * inv_a).clamp(0.0, 1.0));
+                                dp[3] = out_a;
                             } else {
-                                dp[0] = 0;
-                                dp[1] = 0;
-                                dp[2] = 0;
-                                dp[3] = 0;
+                                dp[0] = 0.0;
+                                dp[1] = 0.0;
+                                dp[2] = 0.0;
+                                dp[3] = 0.0;
                             }
                         }
                     }
                 }
 
-                let mut result = base.image().to_rgba8();
+                let mut result = base.image().to_rgba32f();
                 for ((x, y), image_spec) in layers {
-                    let img = image_spec.image().to_rgba8();
+                    let img = image_spec.image().to_rgba32f();
                     blit_linear(&mut result, &img, *x as i64, *y as i64);
                 }
                 result.into()
