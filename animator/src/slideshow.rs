@@ -1136,7 +1136,7 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                                                 shape,
                                                 fill: visuals
                                                     .fill_rgba
-                                                    .mul_alpha_linear(interp_frac as f32),
+                                                    .mul_alpha_linear(1.0 - interp_frac as f32),
                                             });
                                         }
                                     }
