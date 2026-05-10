@@ -71,7 +71,7 @@ fn main() {
                         for b in 0..a {
                             picture.line(pts[a], pts[b], 0.1).fill_rgba(
                                 ColourRgb::from_hsl(10.0 * (a as f64 + 6.0 * b as f64), 1.0, 0.5)
-                                    .to_rgba(1.0),
+                                    .alpha(1.0),
                             );
                         }
                     }
@@ -115,7 +115,7 @@ fn main() {
                         for b in 0..a {
                             picture.line(pts[a], pts[b], 0.1).fill_rgba(
                                 ColourRgb::from_hsl(10.0 * (a as f64 + 6.0 * b as f64), 1.0, 0.5)
-                                    .to_rgba(1.0),
+                                    .alpha(1.0),
                             );
                         }
                     }

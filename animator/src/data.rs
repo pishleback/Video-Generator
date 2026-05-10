@@ -91,9 +91,9 @@ impl DataCache {
                 } else {
                     let file_path = cache_entry.path.clone();
                     drop(cache);
-                    println!("Regenerating file: {:?}", file_spec);
+                    println!("Regenerating file...");
                     file_spec.make_file(&file_path);
-                    println!("Remade {:?}", file_path);
+                    println!("Regenerated {:?}", file_path);
                     assert!(file_path.exists());
                     file_path
                 };
@@ -121,9 +121,9 @@ impl DataCache {
         cache.push(Some(cache_entry));
         drop(cache);
 
-        println!("Generating file: {:?}", file_spec);
+        println!("Generating file...");
         file_spec.make_file(&file_path);
-        println!("Made {:?}", file_path);
+        println!("Generated {:?}", file_path);
 
         assert!(file_path.exists());
 

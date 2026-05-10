@@ -10,6 +10,7 @@ geo = { version = "0.33.1", features = ["serde"] }
 geo-types = "0.7.19"
 image = "0.25.10"
 imageproc = "0.26.1"
+oklab = "1.1.2"
 ordered-float = "5.3.0"
 serde = "1.0.228"
 serde_json = { version = "1.0.149", features = ["float_roundtrip"] }

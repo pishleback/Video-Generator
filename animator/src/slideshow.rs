@@ -1518,16 +1518,43 @@ impl CanvasLine {
 #[derive(Clone)]
 pub struct CanvasShape {
     shape: ShapeSpec,
+    origin: (f64, f64),
+    position: (f64, f64),
     visuals: ShapeVisualOptions,
     interp_id: Option<i64>,
 }
 
+pub enum AlignOptions {
+    TopLeft,
+    TopCenter,
+    TopRight,
+    CenterLeft,
+    Center,
+    CenterRight,
+    BottomLeft,
+    BottomCenter,
+    BottomRight,
+}
+
 impl CanvasShape {
-    fn bounding_rect(&self) -> Option<BoundingRect> {
+    fn untranslated_bounding_rect(&self) -> Option<BoundingRect> {
         self.shape.shape().bounding_rect().map(|br| {
             let min = br.min().x_y();
             let max = br.max().x_y();
             BoundingRect::new(min.0, max.0, min.1, max.1)
+        })
+    }
+
+    fn bounding_rect(&self) -> Option<BoundingRect> {
+        self.shape.shape().bounding_rect().map(|br| {
+            let min = br.min().x_y();
+            let max = br.max().x_y();
+            BoundingRect::new(
+                min.0 + self.position.0 - self.origin.0,
+                max.0 + self.position.0 - self.origin.0,
+                min.1 + self.position.1 - self.origin.1,
+                max.1 + self.position.1 - self.origin.1,
+            )
         })
     }
 
@@ -1536,7 +1563,10 @@ impl CanvasShape {
         embedding: &SlideEmbedding<W, H>,
     ) -> InstantaneousSlideElement<W, H> {
         InstantaneousSlideElement::Shape {
-            shape: embedding.map_shape(self.shape),
+            shape: embedding.map_shape(self.shape.translate(
+                self.position.0 - self.origin.0,
+                self.position.1 - self.origin.1,
+            )),
             visuals: self.visuals,
             interp: InstantaneousInterpOptions {
                 interp_in_type: None,
@@ -1552,6 +1582,56 @@ impl CanvasShape {
 
     pub fn fill_rgba(&mut self, fill_rgba: ColourRgba) -> &mut Self {
         self.visuals.fill_rgba = fill_rgba;
+        self
+    }
+
+    pub fn position(&mut self, position: (f64, f64)) -> &mut Self {
+        self.position = position;
+        self
+    }
+
+    pub fn align(&mut self, align: AlignOptions) -> &mut Self {
+        if let Some(br) = self.untranslated_bounding_rect() {
+            let align = match align {
+                AlignOptions::TopLeft => (0.0, 0.0),
+                AlignOptions::TopCenter => (0.5, 0.0),
+                AlignOptions::TopRight => (1.0, 0.0),
+                AlignOptions::CenterLeft => (0.0, 0.5),
+                AlignOptions::Center => (0.5, 0.5),
+                AlignOptions::CenterRight => (1.0, 0.5),
+                AlignOptions::BottomLeft => (0.0, 1.0),
+                AlignOptions::BottomCenter => (0.5, 1.0),
+                AlignOptions::BottomRight => (1.0, 1.0),
+            };
+            self.origin = (
+                br.min_x + align.0 * br.width(),
+                br.min_y + align.1 * br.height(),
+            );
+        }
+        self
+    }
+
+    pub fn width(&mut self, width: f64) -> &mut Self {
+        if let Some(br) = self.untranslated_bounding_rect() {
+            let origin = self.origin;
+            self.shape = self
+                .shape
+                .translate(-origin.0, -origin.1)
+                .scale(width / br.width())
+                .translate(origin.0, origin.1);
+        }
+        self
+    }
+
+    pub fn height(&mut self, height: f64) -> &mut Self {
+        if let Some(br) = self.untranslated_bounding_rect() {
+            let origin = self.origin;
+            self.shape = self
+                .shape
+                .translate(-origin.0, -origin.1)
+                .scale(height / br.height())
+                .translate(origin.0, origin.1);
+        }
         self
     }
 }
@@ -1635,6 +1715,8 @@ impl CanvasInstantGroup {
             .push(CanvasElementOrGroup::Element(CanvasElement::Shape(
                 CanvasShape {
                     shape: ShapeSpec::latex(expr.into()),
+                    position: (0.0, 0.0),
+                    origin: (0.0, 0.0),
                     visuals: ShapeVisualOptions::default(),
                     interp_id: None,
                 },

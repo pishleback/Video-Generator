@@ -1,6 +1,9 @@
+use core::f64;
+
 use image::{Rgb, Rgba};
 use serde::{Deserialize, Serialize};
 
+// linear RGBA space
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct ColourRgba {
     pub r: f64,
@@ -20,6 +23,7 @@ impl ColourRgba {
     }
 }
 
+// linear RGB space
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct ColourRgb {
     pub r: f64,
@@ -55,64 +59,82 @@ impl ColourRgb {
         }
     }
 
-    /*
-    `h` = hue angle in degrees
-        0	    red?
-        30	    orange?
-        90	    yellow?
-        140	    green?
-        220	    blue?
-        300	    magenta?
-    `c` = chroma (color intensity)
-        0.00	grayscale
-        0.02	barely tinted?
-        0.05	muted?
-        0.10	normal UI color?
-        0.15	strong?
-        0.25	vivid?
-        0.35+	extreme / often clips
-    `l` = perceptual lightness, sensible values between
-        0       black
-      values less than ~0.1 don't produce true perceptual lightness very well. Greens are darker and purples are lightner.
-        0.1     quite dark
-        1       light
-     */
-    pub fn oklch_to_rgb(h: f64, c: f64, l: f64) -> Self {
-        let h = h.to_radians();
+    pub fn from_oklab(l: f64, a: f64, b: f64) -> Self {
+        let l = l as f32;
+        let a = a as f32;
+        let b = b as f32;
 
-        // OKLCH -> OKLab
-        let a = c * h.cos();
-        let b = c * h.sin();
+        // encodes the saturation
+        let chroma = (a * a + b * b).sqrt();
 
-        // OKLab -> LMS
-        let l_ = l + 0.3963377774 * a + 0.2158037573 * b;
-        let m_ = l - 0.1055613458 * a - 0.0638541728 * b;
-        let s_ = l - 0.0894841775 * a - 1.2914855480 * b;
+        // if the color is basically gray thrn hue direction is unstable so skip all gamut logic
+        if chroma < 1e-6 {
+            let rgb = oklab::oklab_to_linear_srgb(oklab::Oklab { l, a, b });
+            return Self {
+                r: rgb.r.clamp(0.0, 1.0) as f64,
+                g: rgb.g.clamp(0.0, 1.0) as f64,
+                b: rgb.b.clamp(0.0, 1.0) as f64,
+            };
+        }
 
-        // Cube
-        let l3 = l_ * l_ * l_;
-        let m3 = m_ * m_ * m_;
-        let s3 = s_ * s_ * s_;
+        let dir_a = a / chroma;
+        let dir_b = b / chroma;
 
-        // LMS -> linear RGB
-        let r_lin = 4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3;
-        let g_lin = -1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3;
-        let b_lin = -0.0041960863 * l3 - 0.7034186147 * m3 + 1.7076147010 * s3;
-
-        // linear RGB -> sRGB
-        fn gamma(x: f64) -> f64 {
-            if x <= 0.0031308 {
-                12.92 * x
+        // binary search for the maximum chroma we can use along this hue direction before RGB goes out of gamut
+        // this reduces the chroma so that the rgb clamping later does not destroy hue information in a bad way
+        let mut lo = 0.0;
+        let mut hi = chroma;
+        let mut mid = 0.0;
+        for _ in 0..12 {
+            mid = 0.5 * (lo + hi);
+            let rgb = oklab::oklab_to_linear_srgb(oklab::Oklab {
+                l,
+                a: dir_a * mid,
+                b: dir_b * mid,
+            });
+            if rgb.r >= 0.0
+                && rgb.r <= 1.0
+                && rgb.g >= 0.0
+                && rgb.g <= 1.0
+                && rgb.b >= 0.0
+                && rgb.b <= 1.0
+            {
+                lo = mid;
             } else {
-                1.055 * x.powf(1.0 / 2.4) - 0.055
+                hi = mid;
             }
         }
 
-        let r = gamma(r_lin).clamp(0.0, 1.0);
-        let g = gamma(g_lin).clamp(0.0, 1.0);
-        let b = gamma(b_lin).clamp(0.0, 1.0);
+        let rgb = oklab::oklab_to_linear_srgb(oklab::Oklab {
+            l,
+            a: dir_a * mid,
+            b: dir_b * mid,
+        });
 
-        Self { r, g, b }
+        Self {
+            r: rgb.r.clamp(0.0, 1.0) as f64,
+            g: rgb.g.clamp(0.0, 1.0) as f64,
+            b: rgb.b.clamp(0.0, 1.0) as f64,
+        }
+    }
+
+    /*
+    perceptually meaningful parameters
+    l: lightness
+        0.0     black
+        1.0     bright
+      between these the blow-out point depends on the hue
+        1.5     blown-out white
+    c: chroma (colour intensity)
+        0.0     greyscale
+        0.1     half saturated
+        0.2     saturated
+        0.3     very saturated
+        0.4     over saturated
+    h: hue in radians
+     */
+    pub fn from_oklch(l: f64, c: f64, h: f64) -> Self {
+        Self::from_oklab(l, c * h.cos(), c * h.sin())
     }
 
     pub fn to_rgb(&self) -> Rgb<u8> {
@@ -123,12 +145,148 @@ impl ColourRgb {
         ])
     }
 
-    pub fn to_rgba(&self, alpha: f64) -> ColourRgba {
+    pub fn alpha(&self, alpha: f64) -> ColourRgba {
         ColourRgba {
             r: self.r,
             g: self.g,
             b: self.b,
             a: alpha,
         }
+    }
+}
+
+// build colours based on oklch
+pub struct ColourBuilder {
+    l: f64,
+    c: f64,
+    h: f64,
+}
+
+impl ColourBuilder {
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        Self {
+            l: 0.5,
+            c: 0.0,
+            h: 0.0,
+        }
+    }
+
+    /// Value guide:
+    /// - 0.0 for greyscale
+    /// - 0.5 for half-saturated
+    /// - 1.0 for saturated
+    /// - more than 1.0 for very/over saturated
+    pub fn saturation(&mut self, saturation: f64) -> &mut Self {
+        self.c = 0.2 * saturation;
+        self
+    }
+
+    /// Value guide:
+    /// - 0.0 for black
+    /// - 0.5 for mid lightness
+    /// - 1.0 for very light
+    /// - 1.5 for blown-out white
+    pub fn lightness(&mut self, lightness: f64) -> &mut Self {
+        self.l = lightness;
+        self
+    }
+
+    pub fn hue_rad(&mut self, hue_rad: f64) -> &mut Self {
+        self.h = hue_rad;
+        self
+    }
+
+    /// Value guide:
+    ///  - 25 for red
+    ///  - 45 for orange
+    ///  - 65 for gold
+    ///  - 85 for yellow
+    ///  - 125 for lime
+    ///  - 145 for green
+    ///  - 185 for cyan
+    ///  - 215 for aqua
+    ///  - 245 for blue
+    ///  - 285 for indigo
+    ///  - 305 for violet
+    ///  - 325 for pink
+    ///  - 345 for purple
+    pub fn hue_deg(&mut self, hue_deg: f64) -> &mut Self {
+        self.h = f64::consts::TAU * hue_deg / 360.0;
+        self
+    }
+
+    pub fn red(&mut self) -> &mut Self {
+        self.hue_deg(25.0);
+        self
+    }
+
+    pub fn orange(&mut self) -> &mut Self {
+        self.hue_deg(45.0);
+        self
+    }
+
+    pub fn gold(&mut self) -> &mut Self {
+        self.hue_deg(65.0);
+        self
+    }
+
+    pub fn yellow(&mut self) -> &mut Self {
+        self.hue_deg(85.0);
+        self
+    }
+
+    pub fn chartreuse(&mut self) -> &mut Self {
+        self.hue_deg(105.0);
+        self
+    }
+
+    pub fn lime(&mut self) -> &mut Self {
+        self.hue_deg(125.0);
+        self
+    }
+
+    pub fn green(&mut self) -> &mut Self {
+        self.hue_deg(145.0);
+        self
+    }
+
+    pub fn cyan(&mut self) -> &mut Self {
+        self.hue_deg(185.0);
+        self
+    }
+
+    pub fn aqua(&mut self) -> &mut Self {
+        self.hue_deg(215.0);
+        self
+    }
+
+    pub fn blue(&mut self) -> &mut Self {
+        self.hue_deg(245.0);
+        self
+    }
+
+    pub fn indigo(&mut self) -> &mut Self {
+        self.hue_deg(285.0);
+        self
+    }
+
+    pub fn violet(&mut self) -> &mut Self {
+        self.hue_deg(305.0);
+        self
+    }
+
+    pub fn purple(&mut self) -> &mut Self {
+        self.hue_deg(325.0);
+        self
+    }
+
+    pub fn pink(&mut self) -> &mut Self {
+        self.hue_deg(345.0);
+        self
+    }
+
+    pub fn finish(&self) -> ColourRgb {
+        ColourRgb::from_oklch(self.l, self.c, self.h)
     }
 }
