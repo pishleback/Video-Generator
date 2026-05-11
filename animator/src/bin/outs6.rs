@@ -34,7 +34,7 @@ fn main() {
 
     slideshow.slide(|slide| {});
 
-    slideshow.interp().duration(1.0);
+    slideshow.interp().duration(3.0);
 
     slideshow.slide(|slide| {
         let (title, body) = slide.title_space_split();
