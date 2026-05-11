@@ -133,7 +133,7 @@ impl ImageSpec {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LatexImage {
-    pub scale: u32,
+    pub dpi: f64,
     pub expr: String,
 }
 
@@ -146,14 +146,17 @@ impl LatexImage {
 \usepackage{amsmath}
 \usepackage{xcolor}
 \begin{document}
-$"#,
+"#,
             self.expr,
-            r#"$
+            r#"
 \end{document}
 "#
         );
 
-        let pdf = tectonic::latex_to_pdf(latex).unwrap();
+        let pdf = tectonic::latex_to_pdf(&latex).unwrap_or_else(|e| {
+            println!("{}", latex);
+            panic!("{:?}", e);
+        });
         let mut tmp_pdf = tempfile::NamedTempFile::new().unwrap();
         tmp_pdf.write_all(&pdf).unwrap();
         let pdf_path = tmp_pdf.path();
@@ -164,7 +167,7 @@ $"#,
                 "-png",
                 pdf_path.to_str().unwrap(),
                 "-r",
-                self.scale.to_string().as_str(),
+                self.dpi.to_string().as_str(),
                 tmp_dir.path().join("out").to_str().unwrap(),
             ])
             .status()

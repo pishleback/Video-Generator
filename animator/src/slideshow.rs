@@ -1,6 +1,6 @@
 use crate::{
     colour::ColourWithAlpha,
-    coords::{Length, Pos2, Rect, SCREEN_UNITS, Vec2},
+    coords::{Length, Pos2, Rect, Vec2},
     image::{ImageSpec, PixelsImage},
     interpolation::Interpable,
     shape::ShapeSpec,
@@ -1197,21 +1197,48 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                         match &self.states[to_slide_idx] {
                             SlideshowState::Slide(to_slide) => {
                                 for element in to_slide.elements.instantaneous.at_time(to_slide_t) {
-                                    let interp_frac = element
-                                        .interp_options()
-                                        .interp_out_type
+                                    let interp_out_type = element.interp_options().interp_out_type;
+                                    let interp_frac = interp_out_type
                                         .unwrap_or_default()
                                         .modify_interp(*state_frac);
                                     match element {
                                         InstantaneousSlideElement::Shape {
                                             shape, visuals, ..
                                         } => {
-                                            elements.push(ElementInstant::Shape {
-                                                shape,
-                                                fill: visuals
-                                                    .fill_rgba
-                                                    .mul_alpha(interp_frac as f32),
-                                            });
+                                            if true {
+                                                elements.push(ElementInstant::Shape {
+                                                    shape: shape
+                                                        .partial_boundary(
+                                                            2.0 * 1.0,
+                                                            (
+                                                                0.0,
+                                                                1.0 - (1.0
+                                                                    - (2.0 * *state_frac).min(1.0))
+                                                                .powi(2),
+                                                            ),
+                                                        )
+                                                        .intersect(&shape),
+                                                    fill: visuals.fill_rgba,
+                                                });
+                                                elements.push(ElementInstant::Shape {
+                                                    shape: shape.clone(),
+                                                    fill: visuals.fill_rgba.mul_alpha(
+                                                        interp_out_type
+                                                            .unwrap_or_default()
+                                                            .modify_interp(
+                                                                (2.0 * *state_frac - 1.0).max(0.0),
+                                                            )
+                                                            as f32,
+                                                    ),
+                                                });
+                                            } else {
+                                                elements.push(ElementInstant::Shape {
+                                                    shape: shape.clone(),
+                                                    fill: visuals
+                                                        .fill_rgba
+                                                        .mul_alpha(interp_frac as f32),
+                                                });
+                                            }
                                         }
                                         InstantaneousSlideElement::Pixels {
                                             min,
@@ -1413,14 +1440,13 @@ impl<const W: u32, const H: u32> SlideRegionBuilder<W, H> {
         self.subregions.last_mut().unwrap()
     }
 
-    pub fn title_space(&mut self) -> &mut Self {
-        self.subregions.push(SlideRegionBuilder::new(
-            self.rect
-                .split_horizontal(0.1)
-                .0
-                .pad(Length::from_units(0.01 * SCREEN_UNITS)),
-        ));
-        self.subregions.last_mut().unwrap()
+    pub fn title_space_split(&mut self) -> (&mut Self, &mut Self) {
+        let (top, bottom) = self.rect.split_horizontal(0.1);
+        let n = self.subregions.len();
+        self.subregions.push(SlideRegionBuilder::new(top));
+        self.subregions.push(SlideRegionBuilder::new(bottom));
+        let top_and_bottom = self.subregions.split_at_mut(n).1.split_at_mut(1);
+        (&mut top_and_bottom.0[0], &mut top_and_bottom.1[0])
     }
 
     pub fn canvas(
@@ -1622,9 +1648,11 @@ impl CanvasLine {
 pub struct CanvasShape {
     shape: ShapeSpec,
     origin: (f64, f64),
+    scale: f64,
     position: (f64, f64),
     visuals: ShapeVisualOptions,
     interp_id: Option<i64>,
+    interp_type: Option<InterpType>,
 }
 
 pub enum AlignOptions {
@@ -1640,7 +1668,7 @@ pub enum AlignOptions {
 }
 
 impl CanvasShape {
-    fn untranslated_bounding_rect(&self) -> Option<BoundingRect> {
+    fn untransformed_bounding_rect(&self) -> Option<BoundingRect> {
         self.shape.shape().bounding_rect().map(|br| {
             let min = br.min().x_y();
             let max = br.max().x_y();
@@ -1649,14 +1677,12 @@ impl CanvasShape {
     }
 
     fn bounding_rect(&self) -> Option<BoundingRect> {
-        self.shape.shape().bounding_rect().map(|br| {
-            let min = br.min().x_y();
-            let max = br.max().x_y();
+        self.untransformed_bounding_rect().map(|br| {
             BoundingRect::new(
-                min.0 + self.position.0 - self.origin.0,
-                max.0 + self.position.0 - self.origin.0,
-                min.1 + self.position.1 - self.origin.1,
-                max.1 + self.position.1 - self.origin.1,
+                self.position.0 + self.scale * (br.min_x - self.origin.0),
+                self.position.0 + self.scale * (br.max_x - self.origin.0),
+                self.position.1 + self.scale * (br.min_y - self.origin.1),
+                self.position.1 + self.scale * (br.max_y - self.origin.1),
             )
         })
     }
@@ -1666,20 +1692,27 @@ impl CanvasShape {
         embedding: &SlideEmbedding<W, H>,
     ) -> InstantaneousSlideElement<W, H> {
         InstantaneousSlideElement::Shape {
-            shape: embedding.map_shape(self.shape.translate(
-                self.position.0 - self.origin.0,
-                self.position.1 - self.origin.1,
-            )),
+            shape: embedding.map_shape(
+                self.shape
+                    .translate(-self.origin.0, -self.origin.1)
+                    .scale(self.scale)
+                    .translate(self.position.0, self.position.1),
+            ),
             visuals: self.visuals,
             interp: InstantaneousInterpOptions {
-                interp_in_type: None,
-                interp_out_type: None,
+                interp_in_type: self.interp_type,
+                interp_out_type: self.interp_type,
             },
         }
     }
 
     pub fn interp_id(&mut self, id: i64) -> &mut Self {
         self.interp_id = Some(id);
+        self
+    }
+
+    pub fn interp_type(&mut self, interp_type: InterpType) -> &mut Self {
+        self.interp_type = Some(interp_type);
         self
     }
 
@@ -1694,7 +1727,7 @@ impl CanvasShape {
     }
 
     pub fn align(&mut self, align: AlignOptions) -> &mut Self {
-        if let Some(br) = self.untranslated_bounding_rect() {
+        if let Some(br) = self.untransformed_bounding_rect() {
             let align = match align {
                 AlignOptions::TopLeft => (0.0, 0.0),
                 AlignOptions::TopCenter => (0.5, 0.0),
@@ -1714,8 +1747,13 @@ impl CanvasShape {
         self
     }
 
+    pub fn scale(&mut self, scale: f64) -> &mut Self {
+        self.scale = scale;
+        self
+    }
+
     pub fn width(&mut self, width: f64) -> &mut Self {
-        if let Some(br) = self.untranslated_bounding_rect() {
+        if let Some(br) = self.untransformed_bounding_rect() {
             let origin = self.origin;
             self.shape = self
                 .shape
@@ -1727,7 +1765,7 @@ impl CanvasShape {
     }
 
     pub fn height(&mut self, height: f64) -> &mut Self {
-        if let Some(br) = self.untranslated_bounding_rect() {
+        if let Some(br) = self.untransformed_bounding_rect() {
             let origin = self.origin;
             self.shape = self
                 .shape
@@ -1849,17 +1887,18 @@ impl CanvasInstantGroup {
         }
     }
 
-    pub fn latex(&mut self, expr: impl Into<String>) -> &mut CanvasShape {
+    pub fn maths(&mut self, expr: impl Into<String>) -> &mut CanvasShape {
+        let shape = CanvasShape {
+            shape: ShapeSpec::latex(format!("$\\displaystyle {}$", expr.into())),
+            position: (0.0, 0.0),
+            scale: 1.0,
+            origin: (0.0, 0.0),
+            visuals: ShapeVisualOptions::default(),
+            interp_id: None,
+            interp_type: None,
+        };
         self.elements
-            .push(CanvasElementOrGroup::Element(CanvasElement::Shape(
-                CanvasShape {
-                    shape: ShapeSpec::latex(expr.into()),
-                    position: (0.0, 0.0),
-                    origin: (0.0, 0.0),
-                    visuals: ShapeVisualOptions::default(),
-                    interp_id: None,
-                },
-            )));
+            .push(CanvasElementOrGroup::Element(CanvasElement::Shape(shape)));
         if let CanvasElementOrGroup::Element(element) = self.elements.last_mut().unwrap()
             && let CanvasElement::Shape(element) = element
         {
@@ -1869,8 +1908,25 @@ impl CanvasInstantGroup {
         }
     }
 
-    pub fn text(&mut self, expr: impl Into<String>) -> &mut CanvasShape {
-        self.latex(format!(r#"\text{{{}}}"#, expr.into()))
+    pub fn latex(&mut self, expr: impl Into<String>) -> &mut CanvasShape {
+        let shape = CanvasShape {
+            shape: ShapeSpec::latex(expr.into()),
+            position: (0.0, 0.0),
+            scale: 1.0,
+            origin: (0.0, 0.0),
+            visuals: ShapeVisualOptions::default(),
+            interp_id: None,
+            interp_type: None,
+        };
+        self.elements
+            .push(CanvasElementOrGroup::Element(CanvasElement::Shape(shape)));
+        if let CanvasElementOrGroup::Element(element) = self.elements.last_mut().unwrap()
+            && let CanvasElement::Shape(element) = element
+        {
+            element
+        } else {
+            unreachable!()
+        }
     }
 
     pub fn pixels(

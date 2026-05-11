@@ -1,6 +1,6 @@
 use animator::{
     colour::{Colour, ColourBuilder, ColourWithAlpha},
-    slideshow::SlideshowBuilder,
+    slideshow::{AlignOptions, SlideshowBuilder},
 };
 use std::path::Path;
 
@@ -12,8 +12,8 @@ fn main() {
 
     slideshow
         .slide(|slide| {
-            slide.title_space().canvas(|picture, t| {
-                picture.text("This is a Title");
+            slide.title_space_split().0.canvas(|picture, t| {
+                picture.latex("This is a Title");
             });
 
             slide.right_half().top_half().canvas(|canvas, t| {
@@ -75,8 +75,8 @@ fn main() {
 
     slideshow
         .slide(|slide| {
-            slide.title_space().canvas(|picture, t| {
-                picture.text("This is another Title");
+            slide.title_space_split().0.canvas(|picture, t| {
+                picture.latex("This is another Title");
             });
 
             slide.left_half().bottom_half().canvas(|canvas, t| {
@@ -142,7 +142,7 @@ fn main() {
                     }
 
                     canvas
-                        .latex(format!(
+                        .maths(format!(
                             "\\texttt{{{:.0} {:.1}}}",
                             c * 360.0,
                             c * std::f64::consts::TAU
@@ -192,7 +192,66 @@ fn main() {
         })
         .duration(6.0);
 
-    let video = slideshow.video(2.0);
+    slideshow.slide(|slide| {
+        let (title, body) = slide.title_space_split();
+        title.canvas(|canvas, t| {
+            canvas.latex("Title");
+        });
+
+        body.canvas(|canvas, t| {
+            canvas.maths(
+                r#"
+            \begin{aligned}
+                \bullet & \; \text{Hii Hii Hii Hii Hii Hii Hii Hii Hii Hii Hii Hii Hii Hii Hii Hii Hii Hii} \\
+                \bullet & \; \text{Byeeee \(a + \frac{b}{c}\)} \\
+                \bullet & \; \text{AwooAwooAwooAwooAwooAwooAwooAwooAwooAwooAwooAwooAwooAwooAwooAwooAwoo}
+            \end{aligned}
+            "#,
+            );
+        });
+    });
+
+    slideshow.slide(|slide| {
+        let (title, body) = slide.title_space_split();
+        title.canvas(|canvas, t| {
+            canvas.latex("Title");
+        });
+
+        body.left_half().left_half().canvas(|canvas, t| {
+            canvas
+                .maths("\\bullet \\; \\text{Hiiiiiiiiiii}")
+                .align(AlignOptions::CenterLeft)
+                .position((0.0, 0.0))
+                .scale(1.0);
+            canvas
+                .maths("\\bullet \\; \\text{weee \\(\\displaystyle a+\\frac{b}{c}\\)}")
+                .align(AlignOptions::CenterLeft)
+                .position((0.0, 1.0))
+                .scale(1.0);
+            canvas
+                .maths("\\bullet \\; \\text{wooo}")
+                .align(AlignOptions::CenterLeft)
+                .position((0.0, 2.0))
+                .scale(1.0);
+            canvas
+                .maths("\\bullet \\; \\text{Hiiiiiiiiiii}")
+                .align(AlignOptions::CenterLeft)
+                .position((0.0, 3.0))
+                .scale(1.0);
+            canvas
+                .maths("\\bullet \\; \\text{weee \\(\\scriptstyle a+\\frac{b}{c}\\)}")
+                .align(AlignOptions::CenterLeft)
+                .position((0.0, 4.0))
+                .scale(1.0);
+            canvas
+                .maths("\\bullet \\; \\text{wooo}")
+                .align(AlignOptions::CenterLeft)
+                .position((0.0, 5.0))
+                .scale(1.0);
+        });
+    });
+
+    let video = slideshow.video(30.0);
     let path = video.make_path();
     std::fs::copy(path.clone(), Path::new("outputs/out.mp4")).unwrap();
     println!("Done :)");

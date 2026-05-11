@@ -1,14 +1,13 @@
+use crate::colour::srgb_to_linear;
 use crate::data::{FileSpec, cache};
 use crate::image::LatexImage;
 use crate::{colour::ColourWithAlpha, image::ImageSpec};
-use geo::algorithm::contains::Contains;
 use geo::{
     AffineOps, AffineTransform, Area, BooleanOps, BoundingRect, Buffer, Coord, Distance, Euclidean,
-    Line, LineString, MakeValid, MultiLineString, MultiPolygon, Point, Polygon, SimplifyVwPreserve,
-    Translate, Validation,
+    HasDimensions, Line, LineString, MakeValid, MultiLineString, MultiPolygon, Point, Polygon,
+    SimplifyVwPreserve, Translate, Validation,
 };
-use image::{GrayImage, Luma, Rgba32FImage};
-use imageproc::contours::{BorderType, Contour, find_contours};
+use image::Rgba32FImage;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -65,10 +64,14 @@ pub enum ShapeSpec {
 
 impl ShapeSpec {
     pub fn latex(expr: String) -> Self {
+        let pt = 10.0; // default Tex text size in pt
+        let dpi = 2048.0; // dpi used for rasterization
+        let inch_in_pt = 72.27; // 1 inch = 72.27 pt in Tex https://en.wikipedia.org/wiki/Point_(typography)
+        let scale_height_factor = inch_in_pt / (pt * dpi);
         ShapeSpec::FromImage(FromImageShape {
-            image: ImageSpec::Latex(LatexImage { scale: 8192, expr }),
+            image: ImageSpec::Latex(LatexImage { dpi, expr }),
         })
-        .normalize()
+        .scale(scale_height_factor)
     }
 }
 
@@ -86,6 +89,7 @@ impl ShapeSpec {
         match self {
             ShapeSpec::Empty => ShapeData {
                 multipolygon: MultiPolygon(vec![]),
+                invisible: MultiPolygon(vec![]),
             },
             ShapeSpec::Circle {
                 center: (x, y),
@@ -221,72 +225,71 @@ pub struct FromImageShape {
 
 impl FromImageShape {
     pub fn make_shape(&self, shape_path: &Path) {
-        fn contour_to_linestring(contour: &Contour<u32>) -> LineString<f64> {
-            let coords: Vec<Coord<f64>> = contour
-                .points
-                .iter()
-                .map(|p| Coord {
-                    x: p.x as f64,
-                    y: p.y as f64,
-                })
-                .collect();
-
-            LineString::from(coords)
-        }
-
         fn image_to_multipolygon(img: image::DynamicImage) -> MultiPolygon<f64> {
-            let img = img.to_luma8();
+            use marching_squares::{Field, march};
 
-            let mut binary = GrayImage::new(img.width(), img.height());
-            for (x, y, p) in img.enumerate_pixels() {
-                let v = if p[0] < 128 { 255 } else { 0 };
-                binary.put_pixel(x, y, Luma([v]));
+            #[derive(Debug)]
+            struct HeightMap {
+                img: image::GrayImage,
+                invert: bool,
             }
 
-            let contours = find_contours::<u32>(&binary);
+            impl Field for HeightMap {
+                fn dimensions(&self) -> (usize, usize) {
+                    let (w, h) = self.img.dimensions();
+                    (w as usize, h as usize)
+                }
 
-            let mut outers: Vec<LineString<f64>> = Vec::new();
-            let mut holes: Vec<LineString<f64>> = Vec::new();
+                fn z_at(&self, x: usize, y: usize) -> f64 {
+                    let mut z = self.img.get_pixel(x as u32, y as u32).0[0] as f64 / 255.0;
+                    if self.invert {
+                        z = 1.0 - z;
+                    }
+                    z
+                }
+            }
 
-            // Separate outer borders and holes
+            let heightmap = HeightMap {
+                img: img.to_luma8(),
+                invert: true,
+            };
+
+            let contours = march(&heightmap.framed(0.0), srgb_to_linear(0.5) as f64);
+
+            let mut contour_linestrings: Vec<LineString<f64>> = Vec::new();
             for c in &contours {
-                let ls = contour_to_linestring(c);
+                let ls = LineString(c.iter().map(|p| Coord { x: p.0, y: p.1 }).collect());
                 if ls.0.len() < 3 {
                     continue;
                 }
-                match c.border_type {
-                    BorderType::Outer => outers.push(ls),
-                    BorderType::Hole => holes.push(ls),
-                }
+                contour_linestrings.push(ls);
             }
 
             // Build polygons by assigning holes to the correct outer
-            let mut polygons = Vec::new();
-
-            for outer in outers {
-                let outer_poly = Polygon::new(outer.clone(), vec![]);
-
-                let mut inner_rings = Vec::new();
-
-                for hole in &holes {
-                    let hole_poly = Polygon::new(hole.clone(), vec![]);
-
-                    // Check if hole belongs to this outer polygon
-                    if outer_poly.contains(&hole_poly) {
-                        inner_rings.push(hole.clone());
-                    }
-                }
-
-                polygons.push(Polygon::new(outer, inner_rings));
+            let mut polygon = MultiPolygon::empty();
+            for linestring in contour_linestrings {
+                polygon = polygon.xor(
+                    &Polygon::new(linestring.clone(), vec![])
+                        .make_valid()
+                        .unwrap(),
+                );
             }
-
-            MultiPolygon(polygons)
-                .make_valid()
-                .unwrap()
-                .simplify_vw_preserve(32.0)
+            polygon.make_valid().unwrap().simplify_vw_preserve(1.0)
         }
 
-        let shape = ShapeData::new(image_to_multipolygon(self.image.image().into()));
+        let image = self.image.image();
+        let (w, h) = image.dimensions();
+        let (w, h) = (w as f64, h as f64);
+        let invisible = MultiPolygon(vec![Polygon::new(
+            LineString::from(vec![(0.0, 0.0), (w, 0.0), (w, h), (0.0, h), (0.0, 0.0)]),
+            vec![],
+        )]);
+        assert!(invisible.is_valid());
+
+        let shape = ShapeData {
+            multipolygon: image_to_multipolygon(image.into()),
+            invisible,
+        };
 
         std::fs::write(shape_path, serde_json::to_string_pretty(&shape).unwrap()).unwrap();
     }
@@ -295,6 +298,7 @@ impl FromImageShape {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ShapeData {
     multipolygon: MultiPolygon,
+    invisible: MultiPolygon, // not part of the shape but is used to determine the size of the shape
 }
 
 impl ShapeData {
@@ -315,32 +319,56 @@ impl ShapeData {
         assert!(es.is_empty());
         assert!(multipolygon.is_valid());
 
-        Self { multipolygon }
+        Self {
+            multipolygon,
+            invisible: MultiPolygon(vec![]),
+        }
     }
 
     pub fn bounding_rect(&self) -> Option<geo::Rect> {
-        self.multipolygon.bounding_rect()
+        vec![
+            self.multipolygon.bounding_rect(),
+            self.invisible.bounding_rect(),
+        ]
+        .into_iter()
+        .flatten()
+        .reduce(|a, b| {
+            geo::Rect::new(
+                (a.min().x.min(b.min().x), a.min().y.min(b.min().y)),
+                (a.max().x.max(b.max().x), a.max().y.max(b.max().y)),
+            )
+        })
     }
 
     pub fn scale(self, scale_factor: f64) -> Self {
         debug_assert!(!scale_factor.is_nan());
         debug_assert_ne!(scale_factor, 0.0);
         debug_assert!(scale_factor.is_finite());
-        Self::new(self.multipolygon.affine_transform(&AffineTransform::scale(
-            scale_factor,
-            scale_factor,
-            (0.0, 0.0),
-        )))
+        Self {
+            multipolygon: self.multipolygon.affine_transform(&AffineTransform::scale(
+                scale_factor,
+                scale_factor,
+                (0.0, 0.0),
+            )),
+            invisible: self.invisible.affine_transform(&AffineTransform::scale(
+                scale_factor,
+                scale_factor,
+                (0.0, 0.0),
+            )),
+        }
     }
 
     pub fn translate(self, x_offset: f64, y_offset: f64) -> Self {
         debug_assert!(!x_offset.is_nan());
         debug_assert!(!y_offset.is_nan());
-        Self::new(self.multipolygon.translate(x_offset, y_offset))
+        Self {
+            multipolygon: self.multipolygon.translate(x_offset, y_offset),
+            invisible: self.invisible.translate(x_offset, y_offset),
+        }
     }
 
     pub fn normalize(mut self) -> Self {
-        if let Some(rect) = self.multipolygon.bounding_rect() {
+        if let Some(rect) = self.bounding_rect() {
             let Coord { x, y } = rect.center();
             self = self.translate(-x, -y);
             let avg_side = rect.unsigned_area().sqrt();
@@ -352,16 +380,19 @@ impl ShapeData {
     }
 
     pub fn boundary(self, radius: f64) -> Self {
-        Self::new({
-            let mut lines = Vec::new();
-            for poly in &self.multipolygon.0 {
-                lines.push(poly.exterior().clone());
-                for inner in poly.interiors() {
-                    lines.push(inner.clone());
+        Self {
+            multipolygon: {
+                let mut lines = Vec::new();
+                for poly in &self.multipolygon.0 {
+                    lines.push(poly.exterior().clone());
+                    for inner in poly.interiors() {
+                        lines.push(inner.clone());
+                    }
                 }
-            }
-            MultiLineString(lines).buffer(radius)
-        })
+                MultiLineString(lines).buffer(radius)
+            },
+            invisible: self.invisible,
+        }
     }
 
     pub fn partial_boundary(self, radius: f64, start_frac: f64, end_frac: f64) -> Self {
@@ -519,24 +550,27 @@ impl ShapeData {
             line_strings
         }
 
-        Self::new({
-            let mut lines = Vec::new();
-            for poly in &self.multipolygon.0 {
-                for partial_line in partial_line(poly.exterior(), start_frac, end_frac) {
-                    assert!(partial_line.validation_errors().is_empty());
-                    lines.push(partial_line);
-                }
-                for inner in poly.interiors() {
-                    for partial_line in partial_line(inner, start_frac, end_frac) {
+        Self {
+            multipolygon: {
+                let mut lines = Vec::new();
+                for poly in &self.multipolygon.0 {
+                    for partial_line in partial_line(poly.exterior(), start_frac, end_frac) {
                         assert!(partial_line.validation_errors().is_empty());
                         lines.push(partial_line);
                     }
+                    for inner in poly.interiors() {
+                        for partial_line in partial_line(inner, start_frac, end_frac) {
+                            assert!(partial_line.validation_errors().is_empty());
+                            lines.push(partial_line);
+                        }
+                    }
                 }
-            }
-            MultiLineString(lines)
-                .simplify_vw_preserve(0.00000000001)
-                .buffer(radius)
-        })
+                MultiLineString(lines)
+                    .simplify_vw_preserve(0.00000000001)
+                    .buffer(radius)
+            },
+            invisible: self.invisible,
+        }
     }
 
     pub fn buffer(self, distance: f64) -> Self {
@@ -584,28 +618,20 @@ impl ShapeImage {
 
         let shape = self.shape.shape();
 
-        let mut pb = PathBuilder::new();
+        let mut paint = Paint::default();
+        paint.set_color(to_tiny_skia_colour(self.shape_colour));
 
-        for poly in &shape.multipolygon {
-            // exterior ring
-            if let Some((first, rest)) = poly
-                .exterior()
-                .points()
-                .collect::<Vec<_>>()
-                .as_slice()
-                .split_first()
-            {
-                pb.move_to(first.x() as f32, first.y() as f32);
-                for p in rest {
-                    pb.line_to(p.x() as f32, p.y() as f32);
-                }
-                pb.close();
-            }
+        if !shape.multipolygon.is_empty() {
+            let mut pb = PathBuilder::new();
 
-            // holes
-            for hole in poly.interiors() {
-                if let Some((first, rest)) =
-                    hole.points().collect::<Vec<_>>().as_slice().split_first()
+            for poly in &shape.multipolygon {
+                // exterior ring
+                if let Some((first, rest)) = poly
+                    .exterior()
+                    .points()
+                    .collect::<Vec<_>>()
+                    .as_slice()
+                    .split_first()
                 {
                     pb.move_to(first.x() as f32, first.y() as f32);
                     for p in rest {
@@ -613,21 +639,31 @@ impl ShapeImage {
                     }
                     pb.close();
                 }
+
+                // holes
+                for hole in poly.interiors() {
+                    if let Some((first, rest)) =
+                        hole.points().collect::<Vec<_>>().as_slice().split_first()
+                    {
+                        pb.move_to(first.x() as f32, first.y() as f32);
+                        for p in rest {
+                            pb.line_to(p.x() as f32, p.y() as f32);
+                        }
+                        pb.close();
+                    }
+                }
             }
+
+            let path = pb.finish().expect("invalid path");
+
+            pixmap.fill_path(
+                &path,
+                &paint,
+                FillRule::EvenOdd,
+                Transform::identity(),
+                None,
+            );
         }
-
-        let path = pb.finish().expect("invalid path");
-
-        let mut paint = Paint::default();
-        paint.set_color(to_tiny_skia_colour(self.shape_colour));
-
-        pixmap.fill_path(
-            &path,
-            &paint,
-            FillRule::EvenOdd,
-            Transform::identity(),
-            None,
-        );
 
         // convert to DynamicImage
         let mut img = image::DynamicImage::ImageRgba8(
