@@ -1,7 +1,7 @@
 use super::SlideshowBuilder;
 use crate::{
     colour::ColourWithAlpha,
-    coords::{Length, Pos2},
+    coords::{Length, Pos2, SCREEN_UNITS},
     image::{ImageSpec, PixelsImage},
     interpolation::Interpable,
     shape::ShapeSpec,
@@ -58,6 +58,7 @@ impl<const W: u32, const H: u32> GluedTemporalElement<W, H> {
         // i.e. a timing before and after each state
         assert_eq!(2 * self.elements.len(), timings.len());
         let (state_idx, state_frac) = get_idx_and_frac(t, timings);
+
         if state_idx % 2 == 0 {
             // on a slide
             let slide_idx = state_idx / 2;
@@ -85,215 +86,227 @@ impl<const W: u32, const H: u32> GluedTemporalElement<W, H> {
                 (Some(from_element), None) => from_element
                     .to_instantaneous(from_slide_t)
                     .draw_partial_out(*state_frac),
-                (Some(from_element), Some(to_element)) => {
-                    let interp_frac = match (
-                        from_element.interp_options().interp_to_type,
-                        to_element.interp_options().interp_from_type,
-                    ) {
-                        (None, None) => InterpType::default().apply(*state_frac),
-                        (None, Some(j)) => j.apply(*state_frac),
-                        (Some(i), None) => i.apply(*state_frac),
-                        (Some(i), Some(j)) => {
-                            f64::interp(&i.apply(*state_frac), &j.apply(*state_frac), *state_frac)
-                        }
-                    };
+                (Some(from), Some(to)) => self.draw_at_interped(t, timings, from, to),
+            }
+        }
+    }
 
-                    vec![match (&from_element, &to_element) {
-                        (
-                            TemporalSlideElement::Circle {
-                                center: from_center,
-                                radius: from_radius,
-                                options: from_options,
-                            },
-                            TemporalSlideElement::Circle {
-                                center: to_center,
-                                radius: to_radius,
-                                options: to_options,
-                            },
-                        ) => {
-                            let visuals = ShapeVisualOptions::interp(
-                                &from_options.visuals.at_time(from_slide_t),
-                                &to_options.visuals.at_time(to_slide_t),
-                                interp_frac,
-                            );
-                            DrawElement::Shape {
-                                shape: ShapeSpec::Circle {
-                                    center: Pos2::interp(
-                                        &from_center.at_time(from_slide_t),
-                                        &to_center.at_time(to_slide_t),
-                                        interp_frac,
-                                    )
-                                    .pixels(),
-                                    radius: Length::interp(
-                                        &from_radius.at_time(from_slide_t),
-                                        &to_radius.at_time(to_slide_t),
-                                        interp_frac,
-                                    )
-                                    .pixels(),
-                                },
-                                fill: visuals.fill_rgba,
-                            }
-                        }
-                        (
-                            TemporalSlideElement::Circle {
-                                center: from_center,
-                                radius: from_radius,
-                                options: from_options,
-                            },
-                            TemporalSlideElement::Line {
-                                start: to_start,
-                                end: to_end,
-                                radius: to_radius,
-                                options: to_options,
-                            },
-                        ) => {
-                            let visuals = ShapeVisualOptions::interp(
-                                &from_options.visuals.at_time(from_slide_t),
-                                &to_options.visuals.at_time(to_slide_t),
-                                interp_frac,
-                            );
-                            DrawElement::Shape {
-                                shape: ShapeSpec::Line {
-                                    point1: Pos2::interp(
-                                        &from_center.at_time(from_slide_t),
-                                        &to_start.at_time(to_slide_t),
-                                        interp_frac,
-                                    )
-                                    .pixels(),
-                                    point2: Pos2::interp(
-                                        &from_center.at_time(from_slide_t),
-                                        &to_end.at_time(to_slide_t),
-                                        interp_frac,
-                                    )
-                                    .pixels(),
-                                    radius: Length::interp(
-                                        &from_radius.at_time(from_slide_t),
-                                        &to_radius.at_time(to_slide_t),
-                                        interp_frac,
-                                    )
-                                    .pixels(),
-                                },
-                                fill: visuals.fill_rgba,
-                            }
-                        }
-                        (
-                            TemporalSlideElement::Line {
-                                start: from_start,
-                                end: from_end,
-                                radius: from_radius,
-                                options: from_options,
-                            },
-                            TemporalSlideElement::Circle {
-                                center: to_center,
-                                radius: to_radius,
-                                options: to_options,
-                            },
-                        ) => {
-                            let visuals = ShapeVisualOptions::interp(
-                                &from_options.visuals.at_time(from_slide_t),
-                                &to_options.visuals.at_time(to_slide_t),
-                                interp_frac,
-                            );
-                            DrawElement::Shape {
-                                shape: ShapeSpec::Line {
-                                    point1: Pos2::interp(
-                                        &from_start.at_time(from_slide_t),
-                                        &to_center.at_time(to_slide_t),
-                                        interp_frac,
-                                    )
-                                    .pixels(),
-                                    point2: Pos2::interp(
-                                        &from_end.at_time(from_slide_t),
-                                        &to_center.at_time(to_slide_t),
-                                        interp_frac,
-                                    )
-                                    .pixels(),
-                                    radius: Length::interp(
-                                        &from_radius.at_time(from_slide_t),
-                                        &to_radius.at_time(to_slide_t),
-                                        interp_frac,
-                                    )
-                                    .pixels(),
-                                },
-                                fill: visuals.fill_rgba,
-                            }
-                        }
-                        (
-                            TemporalSlideElement::Line {
-                                start: from_start,
-                                end: from_end,
-                                radius: from_radius,
-                                options: from_options,
-                            },
-                            TemporalSlideElement::Line {
-                                start: to_start,
-                                end: to_end,
-                                radius: to_radius,
-                                options: to_options,
-                            },
-                        ) => {
-                            let visuals = ShapeVisualOptions::interp(
-                                &from_options.visuals.at_time(from_slide_t),
-                                &to_options.visuals.at_time(to_slide_t),
-                                interp_frac,
-                            );
-                            DrawElement::Shape {
-                                shape: ShapeSpec::Line {
-                                    point1: Pos2::interp(
-                                        &from_start.at_time(from_slide_t),
-                                        &to_start.at_time(to_slide_t),
-                                        interp_frac,
-                                    )
-                                    .pixels(),
-                                    point2: Pos2::interp(
-                                        &from_end.at_time(from_slide_t),
-                                        &to_end.at_time(to_slide_t),
-                                        interp_frac,
-                                    )
-                                    .pixels(),
-                                    radius: Length::interp(
-                                        &from_radius.at_time(from_slide_t),
-                                        &to_radius.at_time(to_slide_t),
-                                        interp_frac,
-                                    )
-                                    .pixels(),
-                                },
-                                fill: visuals.fill_rgba,
-                            }
-                        }
-                        (
-                            TemporalSlideElement::Pixels {
-                                min: from_min,
-                                max: from_max,
-                                pixels: from_pixels,
-                                ..
-                            },
-                            TemporalSlideElement::Pixels {
-                                min: to_min,
-                                max: to_max,
-                                pixels: to_pixels,
-                                ..
-                            },
-                        ) => DrawElement::Pixels {
-                            min: Pos2::interp(from_min, to_min, interp_frac).pixels(),
-                            max: Pos2::interp(from_max, to_max, interp_frac).pixels(),
-                            pixels: {
-                                let from_pixels_t = from_pixels.at_time(from_slide_t);
-                                let to_pixels_t = to_pixels.at_time(to_slide_t);
-                                Arc::new(move |p| {
-                                    ColourWithAlpha::interp(
-                                        &from_pixels_t(p),
-                                        &to_pixels_t(p),
-                                        interp_frac,
-                                    )
-                                })
-                            },
-                        },
-                        _ => {
-                            unimplemented!("Interpolation not implemented for these element types");
-                        }
-                    }]
-                }
+    fn draw_at_interped(
+        &self,
+        t: OrderedFloat<f64>,
+        timings: &[OrderedFloat<f64>],
+        from: &TemporalSlideElement<W, H>,
+        to: &TemporalSlideElement<W, H>,
+    ) -> Vec<DrawElement<W, H>> {
+        assert_eq!(2 * self.elements.len(), timings.len());
+        let (state_idx, state_frac) = get_idx_and_frac(t, timings);
+        let from_slide_idx = (state_idx - 1) / 2;
+        #[allow(clippy::manual_div_ceil)]
+        let to_slide_idx = (state_idx + 1) / 2;
+        let to_slide_t = *(t - timings[to_slide_idx]);
+        let from_slide_t = *(t - timings[from_slide_idx]);
+
+        let interp_frac = match (
+            from.interp_options().interp_to_type,
+            to.interp_options().interp_from_type,
+        ) {
+            (None, None) => InterpType::default().apply(*state_frac),
+            (None, Some(j)) => j.apply(*state_frac),
+            (Some(i), None) => i.apply(*state_frac),
+            (Some(i), Some(j)) => {
+                f64::interp(&i.apply(*state_frac), &j.apply(*state_frac), *state_frac)
+            }
+        };
+
+        match (&from, &to) {
+            (
+                TemporalSlideElement::Circle {
+                    center: from_center,
+                    radius: from_radius,
+                    options: from_options,
+                },
+                TemporalSlideElement::Circle {
+                    center: to_center,
+                    radius: to_radius,
+                    options: to_options,
+                },
+            ) => {
+                let visuals = ShapeVisualOptions::interp(
+                    &from_options.visuals.at_time(from_slide_t),
+                    &to_options.visuals.at_time(to_slide_t),
+                    interp_frac,
+                );
+                vec![DrawElement::Shape {
+                    shape: ShapeSpec::Circle {
+                        center: Pos2::interp(
+                            &from_center.at_time(from_slide_t),
+                            &to_center.at_time(to_slide_t),
+                            interp_frac,
+                        )
+                        .pixels(),
+                        radius: Length::interp(
+                            &from_radius.at_time(from_slide_t),
+                            &to_radius.at_time(to_slide_t),
+                            interp_frac,
+                        )
+                        .pixels(),
+                    },
+                    fill: visuals.fill_rgba,
+                }]
+            }
+            (
+                TemporalSlideElement::Circle {
+                    center: from_center,
+                    radius: from_radius,
+                    options: from_options,
+                },
+                TemporalSlideElement::Line {
+                    start: to_start,
+                    end: to_end,
+                    radius: to_radius,
+                    options: to_options,
+                },
+            ) => {
+                let visuals = ShapeVisualOptions::interp(
+                    &from_options.visuals.at_time(from_slide_t),
+                    &to_options.visuals.at_time(to_slide_t),
+                    interp_frac,
+                );
+                vec![DrawElement::Shape {
+                    shape: ShapeSpec::Line {
+                        point1: Pos2::interp(
+                            &from_center.at_time(from_slide_t),
+                            &to_start.at_time(to_slide_t),
+                            interp_frac,
+                        )
+                        .pixels(),
+                        point2: Pos2::interp(
+                            &from_center.at_time(from_slide_t),
+                            &to_end.at_time(to_slide_t),
+                            interp_frac,
+                        )
+                        .pixels(),
+                        radius: Length::interp(
+                            &from_radius.at_time(from_slide_t),
+                            &to_radius.at_time(to_slide_t),
+                            interp_frac,
+                        )
+                        .pixels(),
+                    },
+                    fill: visuals.fill_rgba,
+                }]
+            }
+            (
+                TemporalSlideElement::Line {
+                    start: from_start,
+                    end: from_end,
+                    radius: from_radius,
+                    options: from_options,
+                },
+                TemporalSlideElement::Circle {
+                    center: to_center,
+                    radius: to_radius,
+                    options: to_options,
+                },
+            ) => {
+                let visuals = ShapeVisualOptions::interp(
+                    &from_options.visuals.at_time(from_slide_t),
+                    &to_options.visuals.at_time(to_slide_t),
+                    interp_frac,
+                );
+                vec![DrawElement::Shape {
+                    shape: ShapeSpec::Line {
+                        point1: Pos2::interp(
+                            &from_start.at_time(from_slide_t),
+                            &to_center.at_time(to_slide_t),
+                            interp_frac,
+                        )
+                        .pixels(),
+                        point2: Pos2::interp(
+                            &from_end.at_time(from_slide_t),
+                            &to_center.at_time(to_slide_t),
+                            interp_frac,
+                        )
+                        .pixels(),
+                        radius: Length::interp(
+                            &from_radius.at_time(from_slide_t),
+                            &to_radius.at_time(to_slide_t),
+                            interp_frac,
+                        )
+                        .pixels(),
+                    },
+                    fill: visuals.fill_rgba,
+                }]
+            }
+            (
+                TemporalSlideElement::Line {
+                    start: from_start,
+                    end: from_end,
+                    radius: from_radius,
+                    options: from_options,
+                },
+                TemporalSlideElement::Line {
+                    start: to_start,
+                    end: to_end,
+                    radius: to_radius,
+                    options: to_options,
+                },
+            ) => {
+                let visuals = ShapeVisualOptions::interp(
+                    &from_options.visuals.at_time(from_slide_t),
+                    &to_options.visuals.at_time(to_slide_t),
+                    interp_frac,
+                );
+                vec![DrawElement::Shape {
+                    shape: ShapeSpec::Line {
+                        point1: Pos2::interp(
+                            &from_start.at_time(from_slide_t),
+                            &to_start.at_time(to_slide_t),
+                            interp_frac,
+                        )
+                        .pixels(),
+                        point2: Pos2::interp(
+                            &from_end.at_time(from_slide_t),
+                            &to_end.at_time(to_slide_t),
+                            interp_frac,
+                        )
+                        .pixels(),
+                        radius: Length::interp(
+                            &from_radius.at_time(from_slide_t),
+                            &to_radius.at_time(to_slide_t),
+                            interp_frac,
+                        )
+                        .pixels(),
+                    },
+                    fill: visuals.fill_rgba,
+                }]
+            }
+            (
+                TemporalSlideElement::Pixels {
+                    min: from_min,
+                    max: from_max,
+                    pixels: from_pixels,
+                    ..
+                },
+                TemporalSlideElement::Pixels {
+                    min: to_min,
+                    max: to_max,
+                    pixels: to_pixels,
+                    ..
+                },
+            ) => vec![DrawElement::Pixels {
+                min: Pos2::interp(from_min, to_min, interp_frac).pixels(),
+                max: Pos2::interp(from_max, to_max, interp_frac).pixels(),
+                pixels: {
+                    let from_pixels_t = from_pixels.at_time(from_slide_t);
+                    let to_pixels_t = to_pixels.at_time(to_slide_t);
+                    Arc::new(move |p| {
+                        ColourWithAlpha::interp(&from_pixels_t(p), &to_pixels_t(p), interp_frac)
+                    })
+                },
+            }],
+            _ => {
+                unimplemented!("Interpolation not implemented for these element types");
             }
         }
     }
@@ -329,12 +342,14 @@ impl<const W: u32, const H: u32> InstantaneousSlideElement<W, H> {
         match self {
             InstantaneousSlideElement::Shape { shape, visuals, .. } => {
                 if true {
+                    let z = 1.0 - (1.0 - (2.0 * interp_frac).min(1.0)).powi(2);
                     vec![
                         DrawElement::Shape {
                             shape: shape
                                 .partial_boundary(
-                                    2.0 * 1.0,
-                                    (0.0, 1.0 - (1.0 - (2.0 * interp_frac).min(1.0)).powi(2)),
+                                    Length::<W, H>::from_units(2.0 * 0.0005 * SCREEN_UNITS)
+                                        .pixels(),
+                                    (0.0, z),
                                 )
                                 .intersect(&shape),
                             fill: visuals.fill_rgba,
