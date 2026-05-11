@@ -1,6 +1,6 @@
 { pkgs ? import <nixpkgs> {} }:
 pkgs.mkShell {
-  nativeBuildInputs = with pkgs; [ rustc cargo gcc rustfmt clippy pkg-config libpng freetype fontconfig openssl zlib graphite2 icu poppler-utils ffmpeg ];
+  nativeBuildInputs = with pkgs; [ rustc cargo gcc rustfmt clippy pkg-config libpng freetype fontconfig openssl zlib graphite2 icu poppler-utils ffmpeg rust-analyzer ];
 
   # Certain Rust tools won't work without this
   # This can also be fixed by using oxalica/rust-overlay and specifying the rust-src extension
