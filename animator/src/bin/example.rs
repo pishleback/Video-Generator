@@ -1,6 +1,6 @@
 use animator::{
     colour::{Colour, ColourBuilder, ColourWithAlpha},
-    slideshow::{AlignOptions, SlideshowBuilder},
+    slideshow::{Align, SlideshowBuilder},
 };
 use std::path::Path;
 
@@ -121,7 +121,7 @@ fn main() {
         .slide(|slide| {
             slide
                 .canvas(|canvas, t| {
-                    let c = (0.2 * t) % 1.0;
+                    let c = 0.2 * t;
                     for x in 0..20 {
                         for y in 0..20 {
                             let x = x as f64;
@@ -147,8 +147,9 @@ fn main() {
                             c * 360.0,
                             c * std::f64::consts::TAU
                         ))
+                        .align(Align::Center)
                         .position((10.0, -2.0))
-                        .height(2.0);
+                        .scale(2.0);
                 })
                 .sampled_bounding_rect(vec![6.0]);
         })
@@ -220,38 +221,38 @@ fn main() {
         body.left_half().left_half().canvas(|canvas, t| {
             canvas
                 .maths("\\bullet \\; \\text{Hiiiiiiiiiii}")
-                .align(AlignOptions::CenterLeft)
+                .align(Align::CenterLeft)
                 .position((0.0, 0.0))
                 .scale(1.0);
             canvas
                 .maths("\\bullet \\; \\text{weee \\(\\displaystyle a+\\frac{b}{c}\\)}")
-                .align(AlignOptions::CenterLeft)
+                .align(Align::CenterLeft)
                 .position((0.0, 1.0))
                 .scale(1.0);
             canvas
                 .maths("\\bullet \\; \\text{wooo}")
-                .align(AlignOptions::CenterLeft)
+                .align(Align::CenterLeft)
                 .position((0.0, 2.0))
                 .scale(1.0);
             canvas
                 .maths("\\bullet \\; \\text{Hiiiiiiiiiii}")
-                .align(AlignOptions::CenterLeft)
+                .align(Align::CenterLeft)
                 .position((0.0, 3.0))
                 .scale(1.0);
             canvas
                 .maths("\\bullet \\; \\text{weee \\(\\scriptstyle a+\\frac{b}{c}\\)}")
-                .align(AlignOptions::CenterLeft)
+                .align(Align::CenterLeft)
                 .position((0.0, 4.0))
                 .scale(1.0);
             canvas
                 .maths("\\bullet \\; \\text{wooo}")
-                .align(AlignOptions::CenterLeft)
+                .align(Align::CenterLeft)
                 .position((0.0, 5.0))
                 .scale(1.0);
         });
     });
 
-    let video = slideshow.video(30.0);
+    let video = slideshow.video(60.0);
     let path = video.make_path();
     std::fs::copy(path.clone(), Path::new("outputs/out.mp4")).unwrap();
     println!("Done :)");

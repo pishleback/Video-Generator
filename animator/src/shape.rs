@@ -447,7 +447,7 @@ impl ShapeData {
 
             let mut points_1 = vec![];
             let mut points_2 = vec![];
-            let mut points_3 = vec![];
+            let mut points_3;
 
             let mut i = 0;
             let mut len_acc = 0.0;
@@ -522,23 +522,21 @@ impl ShapeData {
                 if points_2.len() >= 2 {
                     line_strings.push(LineString(points_2));
                 }
+            } else if !line.is_closed() {
+                for pt in &points_1[1..] {
+                    if pt != points_3.last().unwrap() {
+                        points_3.push(*pt);
+                    }
+                }
+                if points_3.len() >= 2 {
+                    line_strings.push(LineString(points_3));
+                }
             } else {
-                if !line.is_closed() {
-                    for pt in &points_1[1..] {
-                        if pt != points_3.last().unwrap() {
-                            points_3.push(*pt);
-                        }
-                    }
-                    if points_3.len() >= 2 {
-                        line_strings.push(LineString(points_3));
-                    }
-                } else {
-                    if points_1.len() >= 2 {
-                        line_strings.push(LineString(points_1));
-                    }
-                    if points_3.len() >= 2 {
-                        line_strings.push(LineString(points_3));
-                    }
+                if points_1.len() >= 2 {
+                    line_strings.push(LineString(points_1));
+                }
+                if points_3.len() >= 2 {
+                    line_strings.push(LineString(points_3));
                 }
             }
             for line in &line_strings {

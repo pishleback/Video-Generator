@@ -1,7 +1,7 @@
 use animator::{
     colour::{ColourBuilder, ColourWithAlpha},
     image::{ImageSpec, PixelsImage},
-    slideshow::{AlignOptions, InterpType, SlideshowBuilder},
+    slideshow::{Align, InterpType, SlideshowBuilder},
 };
 use core::f64;
 use std::path::Path;
@@ -45,33 +45,33 @@ fn main() {
         body.left_half().left_half().canvas(|canvas, t| {
             canvas
                 .maths("\\bullet \\; \\text{Hiiiiiiiiiii}")
-                .align(AlignOptions::CenterLeft)
+                .align(Align::CenterLeft)
                 .position((0.0, 0.0))
                 .scale(1.0);
             canvas
                 .maths("\\bullet \\; \\text{weee \\(\\displaystyle a+\\frac{b}{c}\\)}")
-                .align(AlignOptions::CenterLeft)
+                .align(Align::CenterLeft)
                 .position((0.0, 1.0))
                 .scale(1.0);
             canvas
                 .maths("\\bullet \\; \\text{Woooo}")
-                .align(AlignOptions::CenterLeft)
+                .align(Align::CenterLeft)
                 .position((0.0, 2.0))
                 .scale(1.0);
             canvas
                 .maths("\\bullet \\; \\text{Hiiiiiiiiiii}")
-                .align(AlignOptions::CenterLeft)
+                .align(Align::CenterLeft)
                 .position((0.0, 3.0))
                 .scale(1.0);
             canvas
                 .maths("\\bullet \\; \\text{weee \\(\\scriptstyle a+\\frac{b}{c}\\)}")
-                .align(AlignOptions::CenterLeft)
+                .align(Align::CenterLeft)
                 .position((0.0, 4.0))
                 .scale(1.0)
                 .interp_type(InterpType::Linear);
             canvas
                 .maths("\\bullet \\; \\text{wooo}")
-                .align(AlignOptions::CenterLeft)
+                .align(Align::CenterLeft)
                 .position((0.0, 5.0))
                 .scale(1.0);
         });
@@ -86,33 +86,33 @@ fn main() {
         body.left_half().left_half().canvas(|canvas, t| {
             canvas
                 .maths("\\bullet \\; \\text{Hiiiiiiiiiii}")
-                .align(AlignOptions::CenterLeft)
+                .align(Align::CenterLeft)
                 .position((0.0, 0.0))
                 .scale(1.0);
             canvas
                 .maths("\\bullet \\; \\text{weee \\(\\displaystyle a+\\frac{b}{c}\\)}")
-                .align(AlignOptions::CenterLeft)
+                .align(Align::CenterLeft)
                 .position((0.0, 1.0))
                 .scale(1.0);
             canvas
                 .maths("\\bullet \\; \\text{Woooo}")
-                .align(AlignOptions::CenterLeft)
+                .align(Align::CenterLeft)
                 .position((0.0, 2.0))
                 .scale(1.0);
             canvas
                 .maths("\\bullet \\; \\text{Hiiiiiiiiiii}")
-                .align(AlignOptions::CenterLeft)
+                .align(Align::CenterLeft)
                 .position((0.0, 3.0))
                 .scale(1.0);
             canvas
                 .maths("\\bullet \\; \\text{weee \\(\\scriptstyle a+\\frac{b}{c}\\)}")
-                .align(AlignOptions::CenterLeft)
+                .align(Align::CenterLeft)
                 .position((0.0, 4.0))
                 .scale(1.0)
                 .interp_type(InterpType::Linear);
             canvas
                 .maths("\\bullet \\; \\text{wooo}")
-                .align(AlignOptions::CenterLeft)
+                .align(Align::CenterLeft)
                 .position((0.0, 5.0))
                 .scale(1.0);
         });
