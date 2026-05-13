@@ -147,7 +147,7 @@ impl<const W: u32, const H: u32> GluedTemporalElement<W, H> {
                     .expect("conflicting interp types")
                 {
                     ShapeInterpType::Morph(i) => i,
-                    ShapeInterpType::Writing => panic!("Invalid interp type"),
+                    ShapeInterpType::Writing => MorphInterpType::default(),
                 }
                 .apply(*state_frac);
 
@@ -195,7 +195,7 @@ impl<const W: u32, const H: u32> GluedTemporalElement<W, H> {
                     .expect("conflicting interp types")
                 {
                     ShapeInterpType::Morph(i) => i,
-                    ShapeInterpType::Writing => panic!("Invalid interp type"),
+                    ShapeInterpType::Writing => MorphInterpType::default(),
                 }
                 .apply(*state_frac);
 
@@ -249,7 +249,7 @@ impl<const W: u32, const H: u32> GluedTemporalElement<W, H> {
                     .expect("conflicting interp types")
                 {
                     ShapeInterpType::Morph(i) => i,
-                    ShapeInterpType::Writing => panic!("Invalid interp type"),
+                    ShapeInterpType::Writing => MorphInterpType::default(),
                 }
                 .apply(*state_frac);
 
@@ -304,7 +304,7 @@ impl<const W: u32, const H: u32> GluedTemporalElement<W, H> {
                     .expect("conflicting interp types")
                 {
                     ShapeInterpType::Morph(i) => i,
-                    ShapeInterpType::Writing => panic!("Invalid interp type"),
+                    ShapeInterpType::Writing => MorphInterpType::default(),
                 }
                 .apply(*state_frac);
 
