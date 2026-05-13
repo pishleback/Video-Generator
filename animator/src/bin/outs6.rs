@@ -48,38 +48,40 @@ fn main() {
                 .align(Align::CenterLeft)
                 .position((0.0, 0.0))
                 .scale(1.0)
-                .interp_id(1);
+                .interp_id(0);
             canvas
                 .maths("\\bullet \\; \\text{weee \\(\\displaystyle a+\\frac{b}{c}\\)}")
                 .align(Align::CenterLeft)
                 .position((0.0, 1.0))
-                .scale(1.0);
+                .scale(1.0)
+                .interp_id(1);
             canvas
                 .maths("\\bullet \\; \\text{Woooo}")
                 .align(Align::CenterLeft)
                 .position((2.0, 2.0))
                 .scale(1.0)
-                .interp_id(0);
+                .interp_id(2);
             canvas
                 .maths("\\bullet \\; \\text{Hiiiiiiiiiii}")
                 .align(Align::CenterLeft)
                 .position((0.0, 3.0))
-                .scale(1.0);
+                .scale(1.0)
+                .interp_id(3);
             canvas
                 .maths("\\bullet \\; \\text{weee \\(\\scriptstyle a+\\frac{b}{c}\\)}")
                 .align(Align::CenterLeft)
                 .position((0.0, 4.0))
                 .scale(1.0)
-                .interp_type(ShapeInterpType::Morph(MorphInterpType::Exp));
+                .interp_type(ShapeInterpType::Morph(MorphInterpType::Exp))
+                .interp_id(4);
             canvas
                 .maths("\\bullet \\; \\text{wooo}")
                 .align(Align::CenterLeft)
                 .position((0.0, 5.0))
-                .scale(1.0);
+                .scale(1.0)
+                .interp_id(5);
         });
     });
-
-    slideshow.interp().duration(4.0);
 
     slideshow.slide(|slide| {
         let (title, body) = slide.title_space_split();
@@ -93,28 +95,31 @@ fn main() {
                 .align(Align::CenterLeft)
                 .position((0.0, 0.0))
                 .scale(1.0)
-                .interp_id(1);
+                .interp_id(0);
             canvas
                 .maths("\\bullet \\; \\text{weee \\(\\displaystyle a+\\frac{b}{c}\\)}")
                 .align(Align::CenterLeft)
                 .position((0.0, 1.0))
-                .scale(1.0);
+                .scale(1.0)
+                .interp_id(1);
             canvas
                 .maths("\\bullet \\; \\text{    Weaiu8}")
                 .align(Align::CenterLeft)
                 .position((3.0, 2.4))
                 .scale(1.0)
-                .interp_id(0);
+                .interp_id(3);
             canvas
                 .maths("\\bullet \\; \\text{Hiiiiiiiiiii}")
                 .align(Align::CenterLeft)
                 .position((0.0, 3.0))
-                .scale(1.0);
+                .scale(1.0)
+                .interp_id(4);
             canvas
                 .maths("\\bullet \\; \\text{wooo}")
                 .align(Align::CenterLeft)
                 .position((0.0, 5.0))
-                .scale(1.0);
+                .scale(1.0)
+                .interp_id(5);
         });
     });
 
