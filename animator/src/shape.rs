@@ -754,10 +754,10 @@ impl ShapeData {
 
             impl HeightMap {
                 fn new(from: MultiPolygon, to: MultiPolygon, frac: f64) -> Self {
-                    let min_x;
-                    let max_x;
-                    let min_y;
-                    let max_y;
+                    let mut min_x;
+                    let mut max_x;
+                    let mut min_y;
+                    let mut max_y;
                     match (from.bounding_rect(), to.bounding_rect()) {
                         (None, None) => unreachable!(),
                         (Some(from_br), None) => {
@@ -779,6 +779,13 @@ impl ShapeData {
                             max_y = from_br.max().y.max(to_br.max().y);
                         }
                     }
+
+                    // padding to avoid edge artefacts
+                    min_x -= 2.0;
+                    max_x += 2.0;
+                    min_y -= 2.0;
+                    max_y += 2.0;
+
                     let width = (max_x - min_x).ceil() as usize;
                     let height = (max_y - min_y).ceil() as usize;
                     Self {
