@@ -6,8 +6,10 @@ use crate::{
     interpolation::Interpable,
     shape::ShapeSpec,
     slideshow::{
-        InterpId, InterpType, ShapeVisualOptions, SlideInterp, SlideshowState,
-        instantaneous::InstantaneousSlideElement, temporal::TemporalSlideElement,
+        InterpId, MorphInterpType, ShapeInterpType, ShapeVisualOptions, SlideInterp,
+        SlideshowState,
+        instantaneous::{InOrOut, InstantaneousSlideElement},
+        temporal::TemporalSlideElement,
     },
     video::{VideoCompiledSpec, VideoSpec},
 };
@@ -106,34 +108,52 @@ impl<const W: u32, const H: u32> GluedTemporalElement<W, H> {
         let to_slide_t = *(t - timings[to_slide_idx]);
         let from_slide_t = *(t - timings[from_slide_idx]);
 
-        let interp_frac = match (
-            from.interp_options().interp_to_type,
-            to.interp_options().interp_from_type,
-        ) {
-            (None, None) => InterpType::default().apply(*state_frac),
-            (None, Some(j)) => j.apply(*state_frac),
-            (Some(i), None) => i.apply(*state_frac),
-            (Some(i), Some(j)) => {
-                f64::interp(&i.apply(*state_frac), &j.apply(*state_frac), *state_frac)
+        fn resolve_interp<InterpType: Default + Eq>(
+            a: Option<InterpType>,
+            b: Option<InterpType>,
+        ) -> Result<InterpType, ()> {
+            match (a, b) {
+                (None, None) => Ok(InterpType::default()),
+                (Some(a), None) => Ok(a),
+                (None, Some(b)) => Ok(b),
+                (Some(a), Some(b)) => {
+                    if a == b {
+                        Ok(a)
+                    } else {
+                        Err(())
+                    }
+                }
             }
-        };
+        }
 
         match (&from, &to) {
             (
                 TemporalSlideElement::Circle {
                     center: from_center,
                     radius: from_radius,
-                    options: from_options,
+                    visuals: from_visuals,
+                    interp_type: from_interp_type,
+                    ..
                 },
                 TemporalSlideElement::Circle {
                     center: to_center,
                     radius: to_radius,
-                    options: to_options,
+                    visuals: to_visuals,
+                    interp_type: to_interp_type,
+                    ..
                 },
             ) => {
+                let interp_frac = match resolve_interp(from_interp_type.to, to_interp_type.from)
+                    .expect("conflicting interp types")
+                {
+                    ShapeInterpType::Morph(i) => i,
+                    ShapeInterpType::Writing => panic!("Invalid interp type"),
+                }
+                .apply(*state_frac);
+
                 let visuals = ShapeVisualOptions::interp(
-                    &from_options.visuals.at_time(from_slide_t),
-                    &to_options.visuals.at_time(to_slide_t),
+                    &from_visuals.at_time(from_slide_t),
+                    &to_visuals.at_time(to_slide_t),
                     interp_frac,
                 );
                 vec![DrawElement::Shape {
@@ -158,18 +178,30 @@ impl<const W: u32, const H: u32> GluedTemporalElement<W, H> {
                 TemporalSlideElement::Circle {
                     center: from_center,
                     radius: from_radius,
-                    options: from_options,
+                    visuals: from_visuals,
+                    interp_type: from_interp_type,
+                    ..
                 },
                 TemporalSlideElement::Line {
                     start: to_start,
                     end: to_end,
                     radius: to_radius,
-                    options: to_options,
+                    visuals: to_visuals,
+                    interp_type: to_interp_type,
+                    ..
                 },
             ) => {
+                let interp_frac = match resolve_interp(from_interp_type.to, to_interp_type.from)
+                    .expect("conflicting interp types")
+                {
+                    ShapeInterpType::Morph(i) => i,
+                    ShapeInterpType::Writing => panic!("Invalid interp type"),
+                }
+                .apply(*state_frac);
+
                 let visuals = ShapeVisualOptions::interp(
-                    &from_options.visuals.at_time(from_slide_t),
-                    &to_options.visuals.at_time(to_slide_t),
+                    &from_visuals.at_time(from_slide_t),
+                    &to_visuals.at_time(to_slide_t),
                     interp_frac,
                 );
                 vec![DrawElement::Shape {
@@ -201,17 +233,29 @@ impl<const W: u32, const H: u32> GluedTemporalElement<W, H> {
                     start: from_start,
                     end: from_end,
                     radius: from_radius,
-                    options: from_options,
+                    visuals: from_visuals,
+                    interp_type: from_interp_type,
+                    ..
                 },
                 TemporalSlideElement::Circle {
                     center: to_center,
                     radius: to_radius,
-                    options: to_options,
+                    visuals: to_visuals,
+                    interp_type: to_interp_type,
+                    ..
                 },
             ) => {
+                let interp_frac = match resolve_interp(from_interp_type.to, to_interp_type.from)
+                    .expect("conflicting interp types")
+                {
+                    ShapeInterpType::Morph(i) => i,
+                    ShapeInterpType::Writing => panic!("Invalid interp type"),
+                }
+                .apply(*state_frac);
+
                 let visuals = ShapeVisualOptions::interp(
-                    &from_options.visuals.at_time(from_slide_t),
-                    &to_options.visuals.at_time(to_slide_t),
+                    &from_visuals.at_time(from_slide_t),
+                    &to_visuals.at_time(to_slide_t),
                     interp_frac,
                 );
                 vec![DrawElement::Shape {
@@ -243,18 +287,30 @@ impl<const W: u32, const H: u32> GluedTemporalElement<W, H> {
                     start: from_start,
                     end: from_end,
                     radius: from_radius,
-                    options: from_options,
+                    visuals: from_visuals,
+                    interp_type: from_interp_type,
+                    ..
                 },
                 TemporalSlideElement::Line {
                     start: to_start,
                     end: to_end,
                     radius: to_radius,
-                    options: to_options,
+                    visuals: to_visuals,
+                    interp_type: to_interp_type,
+                    ..
                 },
             ) => {
+                let interp_frac = match resolve_interp(from_interp_type.to, to_interp_type.from)
+                    .expect("conflicting interp types")
+                {
+                    ShapeInterpType::Morph(i) => i,
+                    ShapeInterpType::Writing => panic!("Invalid interp type"),
+                }
+                .apply(*state_frac);
+
                 let visuals = ShapeVisualOptions::interp(
-                    &from_options.visuals.at_time(from_slide_t),
-                    &to_options.visuals.at_time(to_slide_t),
+                    &from_visuals.at_time(from_slide_t),
+                    &to_visuals.at_time(to_slide_t),
                     interp_frac,
                 );
                 vec![DrawElement::Shape {
@@ -277,6 +333,43 @@ impl<const W: u32, const H: u32> GluedTemporalElement<W, H> {
                             interp_frac,
                         )
                         .pixels(),
+                    },
+                    fill: visuals.fill_rgba,
+                }]
+            }
+            (
+                TemporalSlideElement::Shape {
+                    shape: from_shape,
+                    visuals: from_visuals,
+                    interp_type: from_interp_type,
+                    ..
+                },
+                TemporalSlideElement::Shape {
+                    shape: to_shape,
+                    visuals: to_visuals,
+                    interp_type: to_interp_type,
+                    ..
+                },
+            ) => {
+                let interp_frac = match resolve_interp(from_interp_type.to, to_interp_type.from)
+                    .expect("conflicting interp types")
+                {
+                    ShapeInterpType::Morph(i) => i,
+                    ShapeInterpType::Writing => MorphInterpType::default(),
+                }
+                .apply(*state_frac);
+
+                let visuals = ShapeVisualOptions::interp(
+                    &from_visuals.at_time(from_slide_t),
+                    &to_visuals.at_time(to_slide_t),
+                    interp_frac,
+                );
+
+                vec![DrawElement::Shape {
+                    shape: ShapeSpec::InterpolateByDistanceField {
+                        from_shape: Box::new(from_shape.at_time(from_slide_t)),
+                        to_shape: Box::new(to_shape.at_time(to_slide_t)),
+                        frac: interp_frac,
                     },
                     fill: visuals.fill_rgba,
                 }]
@@ -286,25 +379,33 @@ impl<const W: u32, const H: u32> GluedTemporalElement<W, H> {
                     min: from_min,
                     max: from_max,
                     pixels: from_pixels,
+                    interp_type: from_interp_type,
                     ..
                 },
                 TemporalSlideElement::Pixels {
                     min: to_min,
                     max: to_max,
                     pixels: to_pixels,
+                    interp_type: to_interp_type,
                     ..
                 },
-            ) => vec![DrawElement::Pixels {
-                min: Pos2::interp(from_min, to_min, interp_frac).pixels(),
-                max: Pos2::interp(from_max, to_max, interp_frac).pixels(),
-                pixels: {
-                    let from_pixels_t = from_pixels.at_time(from_slide_t);
-                    let to_pixels_t = to_pixels.at_time(to_slide_t);
-                    Arc::new(move |p| {
-                        ColourWithAlpha::interp(&from_pixels_t(p), &to_pixels_t(p), interp_frac)
-                    })
-                },
-            }],
+            ) => {
+                let interp_frac = resolve_interp(from_interp_type.to, to_interp_type.from)
+                    .expect("conflicting interp types")
+                    .apply(*state_frac);
+
+                vec![DrawElement::Pixels {
+                    min: Pos2::interp(from_min, to_min, interp_frac).pixels(),
+                    max: Pos2::interp(from_max, to_max, interp_frac).pixels(),
+                    pixels: {
+                        let from_pixels_t = from_pixels.at_time(from_slide_t);
+                        let to_pixels_t = to_pixels.at_time(to_slide_t);
+                        Arc::new(move |p| {
+                            ColourWithAlpha::interp(&from_pixels_t(p), &to_pixels_t(p), interp_frac)
+                        })
+                    },
+                }]
+            }
             _ => {
                 unimplemented!("Interpolation not implemented for these element types");
             }
@@ -333,44 +434,56 @@ impl<const W: u32, const H: u32> InstantaneousSlideElement<W, H> {
         }
     }
 
-    fn draw_partial_impl(
-        self,
-        interp_frac: f64,
-        interp_type: InterpType,
-    ) -> Vec<DrawElement<W, H>> {
-        let interp_frac_typed = interp_type.apply(interp_frac);
+    fn draw_partial_impl(self, interp_frac: f64, in_or_out: InOrOut) -> Vec<DrawElement<W, H>> {
         match self {
-            InstantaneousSlideElement::Shape { shape, visuals, .. } => {
-                if true {
-                    let z = 1.0 - (1.0 - (2.0 * interp_frac).min(1.0)).powi(2);
-                    vec![
-                        DrawElement::Shape {
-                            shape: shape
-                                .partial_boundary(
-                                    Length::<W, H>::from_units(2.0 * 0.0005 * SCREEN_UNITS)
-                                        .pixels(),
-                                    (0.0, z),
-                                )
-                                .intersect(&shape),
-                            fill: visuals.fill_rgba,
-                        },
-                        DrawElement::Shape {
+            InstantaneousSlideElement::Shape {
+                shape,
+                visuals,
+                interp,
+            } => {
+                let interp = interp.select(in_or_out).unwrap_or_default();
+                match interp {
+                    ShapeInterpType::Morph(interp) => {
+                        let interp_frac_typed = interp.apply(interp_frac);
+                        vec![DrawElement::Shape {
                             shape: shape.clone(),
-                            fill: visuals.fill_rgba.mul_alpha(
-                                interp_type.apply((2.0 * interp_frac - 1.0).max(0.0)) as f32,
-                            ),
-                        },
-                    ]
-                } else {
-                    vec![DrawElement::Shape {
-                        shape: shape.clone(),
-                        fill: visuals.fill_rgba.mul_alpha(interp_frac_typed as f32),
-                    }]
+                            fill: visuals.fill_rgba.mul_alpha(interp_frac_typed as f32),
+                        }]
+                    }
+                    ShapeInterpType::Writing => {
+                        let z = 1.0 - (1.0 - (2.0 * interp_frac).min(1.0)).powi(2);
+                        vec![
+                            DrawElement::Shape {
+                                shape: shape
+                                    .partial_boundary(
+                                        Length::<W, H>::from_units(2.0 * 0.0005 * SCREEN_UNITS)
+                                            .pixels(),
+                                        (0.0, z),
+                                    )
+                                    .intersect(&shape),
+                                fill: visuals.fill_rgba,
+                            },
+                            DrawElement::Shape {
+                                shape: shape.clone(),
+                                fill: visuals.fill_rgba.mul_alpha(
+                                    MorphInterpType::Exp.apply((2.0 * interp_frac - 1.0).max(0.0))
+                                        as f32,
+                                ),
+                            },
+                        ]
+                    }
                 }
             }
             InstantaneousSlideElement::Pixels {
-                min, max, pixels, ..
+                min,
+                max,
+                pixels,
+                interp,
             } => {
+                let interp_frac_typed = interp
+                    .select(in_or_out)
+                    .unwrap_or_default()
+                    .apply(interp_frac);
                 vec![DrawElement::Pixels {
                     min: min.pixels(),
                     max: max.pixels(),
@@ -381,13 +494,11 @@ impl<const W: u32, const H: u32> InstantaneousSlideElement<W, H> {
     }
 
     fn draw_partial_in(self, interp_frac: f64) -> Vec<DrawElement<W, H>> {
-        let interp_type = self.interp_options().interp_in_type.unwrap_or_default();
-        self.draw_partial_impl(interp_frac, interp_type)
+        self.draw_partial_impl(interp_frac, InOrOut::In)
     }
 
     fn draw_partial_out(self, interp_frac: f64) -> Vec<DrawElement<W, H>> {
-        let interp_type = self.interp_options().interp_out_type.unwrap_or_default();
-        self.draw_partial_impl(1.0 - interp_frac, interp_type)
+        self.draw_partial_impl(1.0 - interp_frac, InOrOut::Out)
     }
 }
 
@@ -525,9 +636,9 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                     let mut matching_pairs = vec![];
                     for multislide_element in &active_multislide_elements {
                         for element in &slide.elements.temporal {
-                            let interp = element.interp_options();
+                            let interp = element.interp_id();
                             if let (Some(from), Some(to)) =
-                                (&interp.interp_from_id, &multislide_element.current_to_id)
+                                (&interp.from, &multislide_element.current_to_id)
                                 && from == to
                             {
                                 matching_pairs.push((multislide_element, element));
@@ -551,7 +662,7 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                         match matches.len() {
                             0 => {
                                 next_active_multislide_elements.push(GluingTemporalElement {
-                                    current_to_id: element.interp_options().interp_to_id.clone(),
+                                    current_to_id: element.interp_id().to.clone(),
                                     elements: vec![None; i]
                                         .into_iter()
                                         .chain(vec![Some(element.clone())])
@@ -588,7 +699,7 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
                             }
                             1 => {
                                 next_active_multislide_elements.push(GluingTemporalElement {
-                                    current_to_id: matches[0].interp_options().interp_to_id.clone(),
+                                    current_to_id: matches[0].interp_id().to.clone(),
                                     elements: multislide_element
                                         .elements
                                         .clone()

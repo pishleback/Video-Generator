@@ -1,16 +1,30 @@
-use std::sync::Arc;
-
 use crate::{
     colour::ColourWithAlpha,
     coords::Pos2,
     shape::ShapeSpec,
-    slideshow::{InterpType, ShapeVisualOptions},
+    slideshow::{MorphInterpType, ShapeInterpType, ShapeVisualOptions},
 };
+use std::sync::Arc;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum InOrOut {
+    In,
+    Out,
+}
 
 #[derive(Debug, Clone, Default)]
-pub struct InstantaneousInterpOptions {
+pub struct InstantaneousInterpOptions<InterpType> {
     pub interp_in_type: Option<InterpType>,
     pub interp_out_type: Option<InterpType>,
+}
+
+impl<InterpType> InstantaneousInterpOptions<InterpType> {
+    pub(crate) fn select(self, in_or_out: InOrOut) -> Option<InterpType> {
+        match in_or_out {
+            InOrOut::In => self.interp_in_type,
+            InOrOut::Out => self.interp_out_type,
+        }
+    }
 }
 
 /*
@@ -22,22 +36,13 @@ pub enum InstantaneousSlideElement<const W: u32, const H: u32> {
     Shape {
         shape: ShapeSpec, // in pixel coords
         visuals: ShapeVisualOptions,
-        interp: InstantaneousInterpOptions,
+        interp: InstantaneousInterpOptions<ShapeInterpType>,
     },
     Pixels {
         min: Pos2<W, H>,
         max: Pos2<W, H>,
         // screen pixel coords -> colour
         pixels: Arc<dyn Fn(Pos2<W, H>) -> ColourWithAlpha + Send + Sync>,
-        interp: InstantaneousInterpOptions,
+        interp: InstantaneousInterpOptions<MorphInterpType>,
     },
-}
-
-impl<const W: u32, const H: u32> InstantaneousSlideElement<W, H> {
-    pub fn interp_options(&self) -> &InstantaneousInterpOptions {
-        match self {
-            InstantaneousSlideElement::Shape { interp, .. } => interp,
-            InstantaneousSlideElement::Pixels { interp, .. } => interp,
-        }
-    }
 }

@@ -33,14 +33,14 @@ pub enum Align {
     BottomRight,
 }
 
-#[derive(Debug, Default, Clone, Copy)]
-pub enum InterpType {
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum MorphInterpType {
     Linear,
     #[default]
     Exp,
 }
 
-impl InterpType {
+impl MorphInterpType {
     fn apply(&self, f: f64) -> f64 {
         if f <= 0.0 {
             0.0
@@ -48,11 +48,18 @@ impl InterpType {
             1.0
         } else {
             match self {
-                InterpType::Linear => f,
-                InterpType::Exp => 0.5 * (1.0 - (std::f64::consts::PI * f).cos()),
+                MorphInterpType::Linear => f,
+                MorphInterpType::Exp => 0.5 * (1.0 - (std::f64::consts::PI * f).cos()),
             }
         }
     }
+}
+
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+pub enum ShapeInterpType {
+    Morph(MorphInterpType),
+    #[default]
+    Writing,
 }
 
 /*

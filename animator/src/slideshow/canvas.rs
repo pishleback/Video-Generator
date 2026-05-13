@@ -1,5 +1,4 @@
 use super::InterpId;
-use super::InterpType;
 use super::ShapeVisualOptions;
 use super::SlideElements;
 use super::SlideEmbedding;
@@ -10,11 +9,12 @@ use crate::coords::Pos2;
 use crate::coords::Rect;
 use crate::shape::ShapeSpec;
 use crate::slideshow::Align;
+use crate::slideshow::ShapeInterpType;
 use crate::slideshow::TemporalSlideElement;
 use crate::slideshow::instantaneous::InstantaneousInterpOptions;
 use crate::slideshow::instantaneous::InstantaneousSlideElement;
-use crate::slideshow::temporal::TemporalInterpOptions;
-use crate::slideshow::temporal::TemporalShapeOptions;
+use crate::slideshow::temporal::TemporalInterpId;
+use crate::slideshow::temporal::TemporalInterpType;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::rc::Rc;
@@ -189,18 +189,25 @@ impl CanvasLine {
 
 #[derive(Clone)]
 pub struct CanvasShape {
-    shape: ShapeSpec,
+    untransformed_shape: ShapeSpec,
     origin: (f64, f64),
     scale: f64,
     position: (f64, f64),
     visuals: ShapeVisualOptions,
     interp_id: Option<i64>,
-    interp_type: Option<InterpType>,
+    interp_type: Option<ShapeInterpType>,
 }
 
 impl CanvasShape {
+    pub fn shape(&self) -> ShapeSpec {
+        self.untransformed_shape
+            .translate(-self.origin.0, -self.origin.1)
+            .scale(self.scale)
+            .translate(self.position.0, self.position.1)
+    }
+
     fn untransformed_bounding_rect(&self) -> Option<BoundingRect> {
-        self.shape.shape().bounding_rect().map(|br| {
+        self.untransformed_shape.shape().bounding_rect().map(|br| {
             let min = br.min().x_y();
             let max = br.max().x_y();
             BoundingRect::new(min.0, max.0, min.1, max.1)
@@ -223,12 +230,7 @@ impl CanvasShape {
         embedding: &SlideEmbedding<W, H>,
     ) -> InstantaneousSlideElement<W, H> {
         InstantaneousSlideElement::Shape {
-            shape: embedding.map_shape(
-                self.shape
-                    .translate(-self.origin.0, -self.origin.1)
-                    .scale(self.scale)
-                    .translate(self.position.0, self.position.1),
-            ),
+            shape: embedding.map_shape(self.shape()),
             visuals: self.visuals,
             interp: InstantaneousInterpOptions {
                 interp_in_type: self.interp_type,
@@ -242,7 +244,7 @@ impl CanvasShape {
         self
     }
 
-    pub fn interp_type(&mut self, interp_type: InterpType) -> &mut Self {
+    pub fn interp_type(&mut self, interp_type: ShapeInterpType) -> &mut Self {
         self.interp_type = Some(interp_type);
         self
     }
@@ -285,24 +287,14 @@ impl CanvasShape {
 
     pub fn width(&mut self, width: f64) -> &mut Self {
         if let Some(br) = self.untransformed_bounding_rect() {
-            let origin = self.origin;
-            self.shape = self
-                .shape
-                .translate(-origin.0, -origin.1)
-                .scale(width / br.width())
-                .translate(origin.0, origin.1);
+            self.scale = width / br.width();
         }
         self
     }
 
     pub fn height(&mut self, height: f64) -> &mut Self {
         if let Some(br) = self.untransformed_bounding_rect() {
-            let origin = self.origin;
-            self.shape = self
-                .shape
-                .translate(-origin.0, -origin.1)
-                .scale(height / br.height())
-                .translate(origin.0, origin.1);
+            self.scale = height / br.height();
         }
         self
     }
@@ -420,7 +412,7 @@ impl CanvasInstantGroup {
 
     pub fn maths(&mut self, expr: impl Into<String>) -> &mut CanvasShape {
         let shape = CanvasShape {
-            shape: ShapeSpec::latex(format!("$\\displaystyle {}$", expr.into())),
+            untransformed_shape: ShapeSpec::latex(format!("$\\displaystyle {}$", expr.into())),
             position: (0.0, 0.0),
             scale: 1.0,
             origin: (0.0, 0.0),
@@ -441,7 +433,7 @@ impl CanvasInstantGroup {
 
     pub fn latex(&mut self, expr: impl Into<String>) -> &mut CanvasShape {
         let shape = CanvasShape {
-            shape: ShapeSpec::latex(expr.into()),
+            untransformed_shape: ShapeSpec::latex(expr.into()),
             position: (0.0, 0.0),
             scale: 1.0,
             origin: (0.0, 0.0),
@@ -605,9 +597,7 @@ impl Canvas {
                                     let at_t = at_t_check_matches.clone();
                                     move |t| match at_t(t).get(&id).unwrap().element.clone() {
                                         CanvasElement::Circle(circle) => circle,
-                                        _ => {
-                                            panic!("Temporal element changed type")
-                                        }
+                                        _ => panic!("Temporal element changed type"),
                                     }
                                 });
                                 TemporalSlideElement::Circle {
@@ -621,17 +611,17 @@ impl Canvas {
                                         let get_circle_t = get_circle_t.clone();
                                         move |t| slide_embedding.map_length(get_circle_t(t).radius)
                                     }),
-                                    options: TemporalShapeOptions {
-                                        interp: TemporalInterpOptions {
-                                            interp_from_id: Some(id.clone()),
-                                            interp_to_id: Some(id.clone()),
-                                            interp_from_type: None,
-                                            interp_to_type: None,
-                                        },
-                                        visuals: Timeline::from_fn({
-                                            let get_circle_t = get_circle_t.clone();
-                                            move |t| get_circle_t(t).visuals
-                                        }),
+                                    visuals: Timeline::from_fn({
+                                        let get_circle_t = get_circle_t.clone();
+                                        move |t| get_circle_t(t).visuals
+                                    }),
+                                    interp_type: TemporalInterpType {
+                                        from: None,
+                                        to: None,
+                                    },
+                                    interp_id: TemporalInterpId {
+                                        from: Some(id.clone()),
+                                        to: Some(id.clone()),
                                     },
                                 }
                             }
@@ -641,9 +631,7 @@ impl Canvas {
                                     let at_t = at_t_check_matches.clone();
                                     move |t| match at_t(t).get(&id).unwrap().element.clone() {
                                         CanvasElement::Line(line) => line,
-                                        _ => {
-                                            panic!("Temporal element changed type")
-                                        }
+                                        _ => panic!("Temporal element changed type"),
                                     }
                                 });
                                 TemporalSlideElement::Line {
@@ -662,17 +650,17 @@ impl Canvas {
                                         let get_line_t = get_line_t.clone();
                                         move |t| slide_embedding.map_length(get_line_t(t).radius)
                                     }),
-                                    options: TemporalShapeOptions {
-                                        interp: TemporalInterpOptions {
-                                            interp_from_id: Some(id.clone()),
-                                            interp_to_id: Some(id.clone()),
-                                            interp_from_type: None,
-                                            interp_to_type: None,
-                                        },
-                                        visuals: Timeline::from_fn({
-                                            let get_line_t = get_line_t.clone();
-                                            move |t| get_line_t(t).visuals
-                                        }),
+                                    visuals: Timeline::from_fn({
+                                        let get_line_t = get_line_t.clone();
+                                        move |t| get_line_t(t).visuals
+                                    }),
+                                    interp_type: TemporalInterpType {
+                                        from: None,
+                                        to: None,
+                                    },
+                                    interp_id: TemporalInterpId {
+                                        from: Some(id.clone()),
+                                        to: Some(id.clone()),
                                     },
                                 }
                             }
@@ -682,28 +670,26 @@ impl Canvas {
                                     let at_t = at_t_check_matches.clone();
                                     move |t| match at_t(t).get(&id).unwrap().element.clone() {
                                         CanvasElement::Shape(shape) => shape,
-                                        _ => {
-                                            panic!("Temporal element changed type")
-                                        }
+                                        _ => panic!("Temporal element changed type"),
                                     }
                                 });
                                 TemporalSlideElement::Shape {
                                     shape: Timeline::from_fn({
                                         let slide_embedding = slide_embedding.clone();
                                         let get_shape_t = get_shape_t.clone();
-                                        move |t| slide_embedding.map_shape(get_shape_t(t).shape)
+                                        move |t| slide_embedding.map_shape(get_shape_t(t).shape())
                                     }),
-                                    options: TemporalShapeOptions {
-                                        interp: TemporalInterpOptions {
-                                            interp_from_id: Some(id.clone()),
-                                            interp_to_id: Some(id.clone()),
-                                            interp_from_type: None,
-                                            interp_to_type: None,
-                                        },
-                                        visuals: Timeline::from_fn({
-                                            let get_circle_t = get_shape_t.clone();
-                                            move |t| get_circle_t(t).visuals
-                                        }),
+                                    visuals: Timeline::from_fn({
+                                        let get_circle_t = get_shape_t.clone();
+                                        move |t| get_circle_t(t).visuals
+                                    }),
+                                    interp_type: TemporalInterpType {
+                                        from: None,
+                                        to: None,
+                                    },
+                                    interp_id: TemporalInterpId {
+                                        from: Some(id.clone()),
+                                        to: Some(id.clone()),
                                     },
                                 }
                             }
@@ -743,11 +729,13 @@ impl Canvas {
                                             pixels
                                         }
                                     }),
-                                    interp: TemporalInterpOptions {
-                                        interp_from_id: Some(id.clone()),
-                                        interp_to_id: Some(id.clone()),
-                                        interp_from_type: None,
-                                        interp_to_type: None,
+                                    interp_type: TemporalInterpType {
+                                        from: None,
+                                        to: None,
+                                    },
+                                    interp_id: TemporalInterpId {
+                                        from: Some(id.clone()),
+                                        to: Some(id.clone()),
                                     },
                                 }
                             }

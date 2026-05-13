@@ -1,7 +1,7 @@
 use animator::{
     colour::{ColourBuilder, ColourWithAlpha},
     image::{ImageSpec, PixelsImage},
-    slideshow::{Align, InterpType, SlideshowBuilder},
+    slideshow::{Align, MorphInterpType, ShapeInterpType, SlideshowBuilder},
 };
 use core::f64;
 use std::path::Path;
@@ -47,7 +47,8 @@ fn main() {
                 .maths("\\bullet \\; \\text{Hiiiiiiiiiii}")
                 .align(Align::CenterLeft)
                 .position((0.0, 0.0))
-                .scale(1.0);
+                .scale(1.0)
+                .interp_id(1);
             canvas
                 .maths("\\bullet \\; \\text{weee \\(\\displaystyle a+\\frac{b}{c}\\)}")
                 .align(Align::CenterLeft)
@@ -56,8 +57,9 @@ fn main() {
             canvas
                 .maths("\\bullet \\; \\text{Woooo}")
                 .align(Align::CenterLeft)
-                .position((0.0, 2.0))
-                .scale(1.0);
+                .position((2.0, 2.0))
+                .scale(1.0)
+                .interp_id(0);
             canvas
                 .maths("\\bullet \\; \\text{Hiiiiiiiiiii}")
                 .align(Align::CenterLeft)
@@ -68,7 +70,7 @@ fn main() {
                 .align(Align::CenterLeft)
                 .position((0.0, 4.0))
                 .scale(1.0)
-                .interp_type(InterpType::Linear);
+                .interp_type(ShapeInterpType::Morph(MorphInterpType::Exp));
             canvas
                 .maths("\\bullet \\; \\text{wooo}")
                 .align(Align::CenterLeft)
@@ -76,6 +78,8 @@ fn main() {
                 .scale(1.0);
         });
     });
+
+    slideshow.interp().duration(4.0);
 
     slideshow.slide(|slide| {
         let (title, body) = slide.title_space_split();
@@ -88,28 +92,24 @@ fn main() {
                 .maths("\\bullet \\; \\text{Hiiiiiiiiiii}")
                 .align(Align::CenterLeft)
                 .position((0.0, 0.0))
-                .scale(1.0);
+                .scale(1.0)
+                .interp_id(1);
             canvas
                 .maths("\\bullet \\; \\text{weee \\(\\displaystyle a+\\frac{b}{c}\\)}")
                 .align(Align::CenterLeft)
                 .position((0.0, 1.0))
                 .scale(1.0);
             canvas
-                .maths("\\bullet \\; \\text{Woooo}")
+                .maths("\\bullet \\; \\text{    Weaiu8}")
                 .align(Align::CenterLeft)
-                .position((0.0, 2.0))
-                .scale(1.0);
+                .position((3.0, 2.4))
+                .scale(1.0)
+                .interp_id(0);
             canvas
                 .maths("\\bullet \\; \\text{Hiiiiiiiiiii}")
                 .align(Align::CenterLeft)
                 .position((0.0, 3.0))
                 .scale(1.0);
-            canvas
-                .maths("\\bullet \\; \\text{weee \\(\\scriptstyle a+\\frac{b}{c}\\)}")
-                .align(Align::CenterLeft)
-                .position((0.0, 4.0))
-                .scale(1.0)
-                .interp_type(InterpType::Linear);
             canvas
                 .maths("\\bullet \\; \\text{wooo}")
                 .align(Align::CenterLeft)
@@ -122,7 +122,7 @@ fn main() {
 
     slideshow.slide(|slide| {});
 
-    let video = slideshow.video(60.0);
+    let video = slideshow.video(30.0);
     let path = video.make_path();
     std::fs::copy(path.clone(), Path::new("outputs/out.mp4")).unwrap();
 }

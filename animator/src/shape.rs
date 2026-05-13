@@ -3,9 +3,9 @@ use crate::data::{FileSpec, cache};
 use crate::image::LatexImage;
 use crate::{colour::ColourWithAlpha, image::ImageSpec};
 use geo::{
-    AffineOps, AffineTransform, Area, BooleanOps, BoundingRect, Buffer, Coord, Distance, Euclidean,
-    HasDimensions, Line, LineString, MakeValid, MultiLineString, MultiPolygon, Point, Polygon,
-    SimplifyVwPreserve, Translate, Validation,
+    AffineOps, AffineTransform, Area, BooleanOps, BoundingRect, Buffer, Contains, Coord, Distance,
+    Euclidean, HasDimensions, Line, LineString, MakeValid, MultiLineString, MultiPolygon, Point,
+    Polygon, Scale, SimplifyVwPreserve, Translate, Validation,
 };
 use image::Rgba32FImage;
 use serde::{Deserialize, Serialize};
@@ -59,6 +59,13 @@ pub enum ShapeSpec {
         target: Box<ShapeSpec>,
         tool: Box<ShapeSpec>,
     },
+    // uses unit squares for sampling
+    // so make sure shapes are suitably scaled before doing this i.e. are they in pixel coordinates?
+    InterpolateByDistanceField {
+        from_shape: Box<ShapeSpec>,
+        to_shape: Box<ShapeSpec>,
+        frac: f64,
+    },
     FromImage(FromImageShape),
 }
 
@@ -79,6 +86,20 @@ impl ShapeSpec {
     pub fn make_shape(&self, path: &Path) {
         match self {
             ShapeSpec::FromImage(x) => x.make_shape(path),
+            Self::InterpolateByDistanceField {
+                from_shape,
+                to_shape,
+                frac,
+            } => std::fs::write(
+                path,
+                serde_json::to_string_pretty(&ShapeData::interpolate_by_distance_field(
+                    from_shape.shape(),
+                    to_shape.shape(),
+                    *frac,
+                ))
+                .unwrap(),
+            )
+            .unwrap(),
             _ => {
                 std::fs::write(path, serde_json::to_string_pretty(&self.shape()).unwrap()).unwrap()
             }
@@ -127,7 +148,7 @@ impl ShapeSpec {
             ShapeSpec::Union { shape1, shape2 } => shape1.shape().union(&shape2.shape()),
             ShapeSpec::Intersect { shape1, shape2 } => shape1.shape().intersect(&shape2.shape()),
             ShapeSpec::Subtract { target, tool } => target.shape().subtract(&tool.shape()),
-            ShapeSpec::FromImage(_) => {
+            ShapeSpec::FromImage(_) | ShapeSpec::InterpolateByDistanceField { .. } => {
                 let shape_path = cache().make_file(&FileSpec::Shape(self.clone()));
                 serde_json::from_str(std::fs::read_to_string(shape_path).unwrap().as_str()).unwrap()
             }
@@ -689,5 +710,196 @@ impl ShapeImage {
             }
         }
         img
+    }
+}
+
+impl ShapeData {
+    pub fn interpolate_by_distance_field(from: ShapeData, to: ShapeData, frac: f64) -> ShapeData {
+        fn signed_distance(mp: &MultiPolygon, p: Point) -> f64 {
+            use geo::{Distance, Euclidean};
+            let mut min_dist = f64::INFINITY;
+            for poly in &mp.0 {
+                min_dist = min_dist.min(Euclidean.distance(&p, poly.exterior()));
+                for hole in poly.interiors() {
+                    min_dist = min_dist.min(Euclidean.distance(&p, hole));
+                }
+            }
+            let inside = mp.contains(&p);
+            if inside { -min_dist } else { min_dist }
+        }
+
+        fn interpolate_multipolygon_by_distance_field(
+            from: MultiPolygon,
+            to: MultiPolygon,
+            frac: f64,
+        ) -> MultiPolygon {
+            if from.bounding_rect().is_none() && to.bounding_rect().is_none() {
+                return MultiPolygon::empty();
+            }
+
+            use marching_squares::{Field, march};
+
+            #[derive(Debug)]
+            struct HeightMap {
+                width: usize,
+                height: usize,
+                min_x: f64,
+                max_x: f64,
+                min_y: f64,
+                max_y: f64,
+                from: MultiPolygon,
+                to: MultiPolygon,
+                frac: f64,
+            }
+
+            impl HeightMap {
+                fn new(from: MultiPolygon, to: MultiPolygon, frac: f64) -> Self {
+                    let min_x;
+                    let max_x;
+                    let min_y;
+                    let max_y;
+                    match (from.bounding_rect(), to.bounding_rect()) {
+                        (None, None) => unreachable!(),
+                        (Some(from_br), None) => {
+                            min_x = from_br.min().x;
+                            max_x = from_br.max().x;
+                            min_y = from_br.min().y;
+                            max_y = from_br.max().y;
+                        }
+                        (None, Some(to_br)) => {
+                            min_x = to_br.min().x;
+                            max_x = to_br.max().x;
+                            min_y = to_br.min().y;
+                            max_y = to_br.max().y;
+                        }
+                        (Some(from_br), Some(to_br)) => {
+                            min_x = from_br.min().x.min(to_br.min().x);
+                            max_x = from_br.max().x.max(to_br.max().x);
+                            min_y = from_br.min().y.min(to_br.min().y);
+                            max_y = from_br.max().y.max(to_br.max().y);
+                        }
+                    }
+                    let width = (max_x - min_x).ceil() as usize;
+                    let height = (max_y - min_y).ceil() as usize;
+                    Self {
+                        width,
+                        height,
+                        min_x,
+                        max_x,
+                        min_y,
+                        max_y,
+                        from,
+                        to,
+                        frac,
+                    }
+                }
+            }
+
+            impl Field for HeightMap {
+                fn dimensions(&self) -> (usize, usize) {
+                    (self.width, self.height)
+                }
+
+                fn z_at(&self, x: usize, y: usize) -> f64 {
+                    let p = (
+                        self.min_x + (x as f64 / self.width as f64) * (self.max_x - self.min_x),
+                        self.min_y + (y as f64 / self.height as f64) * (self.max_y - self.min_y),
+                    );
+                    (1.0 - self.frac) * signed_distance(&self.from, p.into())
+                        + self.frac * signed_distance(&self.to, p.into())
+                }
+            }
+
+            let heightmap = HeightMap::new(from, to, frac);
+
+            let contours = march(&heightmap.framed(1.0), 0.0);
+
+            let mut contour_linestrings: Vec<LineString<f64>> = Vec::new();
+            for c in &contours {
+                let ls = LineString(c.iter().map(|p| Coord { x: p.0, y: p.1 }).collect());
+                if ls.0.len() < 3 {
+                    continue;
+                }
+                contour_linestrings.push(ls);
+            }
+
+            let mut polygon = MultiPolygon::empty();
+            for linestring in contour_linestrings {
+                polygon = polygon.xor(
+                    &Polygon::new(linestring.clone(), vec![])
+                        .make_valid()
+                        .unwrap(),
+                );
+            }
+            polygon
+                .make_valid()
+                .unwrap()
+                .simplify_vw_preserve(1.0)
+                .scale_around_point(
+                    (heightmap.max_x - heightmap.min_x) / (heightmap.width as f64),
+                    (heightmap.max_y - heightmap.min_y) / (heightmap.height as f64),
+                    (0.0, 0.0),
+                )
+                .translate(heightmap.min_x, heightmap.min_y)
+        }
+
+        let from_center_x;
+        let from_center_y;
+        let from_avg_side;
+        let to_center_x;
+        let to_center_y;
+        let to_avg_side;
+        let interp_center_x;
+        let interp_center_y;
+        let interp_avg_side;
+        match (from.bounding_rect(), to.bounding_rect()) {
+            (None, None) => {
+                return ShapeData::new(MultiPolygon::empty());
+            }
+            (None, Some(br)) | (Some(br), None) => {
+                from_center_x = br.center().x;
+                from_center_y = br.center().y;
+                from_avg_side = (br.width() * br.height()).sqrt();
+                to_center_x = br.center().x;
+                to_center_y = br.center().y;
+                to_avg_side = (br.width() * br.height()).sqrt();
+                interp_center_x = br.center().x;
+                interp_center_y = br.center().y;
+                interp_avg_side = (br.width() * br.height()).sqrt();
+            }
+            (Some(from_br), Some(to_br)) => {
+                from_center_x = from_br.center().x;
+                from_center_y = from_br.center().y;
+                from_avg_side = (from_br.width() * from_br.height()).sqrt();
+                to_center_x = to_br.center().x;
+                to_center_y = to_br.center().y;
+                to_avg_side = (to_br.width() * to_br.height()).sqrt();
+                interp_center_x = (1.0 - frac) * from_center_x + frac * to_center_x;
+                interp_center_y = (1.0 - frac) * from_center_y + frac * to_center_y;
+                interp_avg_side = (1.0 - frac) * from_avg_side + frac * to_avg_side;
+            }
+        }
+
+        ShapeData {
+            multipolygon: interpolate_multipolygon_by_distance_field(
+                from.multipolygon
+                    .translate(-from_center_x, -from_center_y)
+                    .scale(interp_avg_side / from_avg_side),
+                to.multipolygon
+                    .translate(-to_center_x, -to_center_y)
+                    .scale(interp_avg_side / to_avg_side),
+                frac,
+            ),
+            invisible: interpolate_multipolygon_by_distance_field(
+                from.invisible
+                    .translate(-from_center_x, -from_center_y)
+                    .scale(interp_avg_side / from_avg_side),
+                to.invisible
+                    .translate(-to_center_x, -to_center_y)
+                    .scale(interp_avg_side / to_avg_side),
+                frac,
+            ),
+        }
+        .translate(interp_center_x, interp_center_y)
     }
 }
