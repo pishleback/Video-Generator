@@ -15,8 +15,8 @@ use crate::slideshow::instantaneous::InstantaneousInterpOptions;
 use crate::slideshow::instantaneous::InstantaneousSlideElement;
 use crate::slideshow::temporal::TemporalInterpId;
 use crate::slideshow::temporal::TemporalInterpType;
-use std::collections::HashMap;
-use std::collections::HashSet;
+use ordered_hash_map::OrderedHashMap;
+use ordered_hash_map::OrderedHashSet;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -554,7 +554,8 @@ impl Canvas {
                     let at_t = Rc::new({
                         let build_instant = self.build_instant.clone();
                         move |t: f64| {
-                            let mut elements_by_id = HashMap::new();
+                            // use ordered hash maps and ordered has sets here so that the output is deterministic
+                            let mut elements_by_id = OrderedHashMap::new();
                             for (id, elem) in
                                 (build_instant)(t)
                                     .flatten()
@@ -580,8 +581,8 @@ impl Canvas {
                     let keys = zero_instant.keys().cloned().collect::<Vec<_>>();
                     let at_t_check_matches = Rc::new(move |t: f64| {
                         let at_t = at_t(t);
-                        if at_t.keys().collect::<HashSet<_>>()
-                            != keys.iter().collect::<HashSet<_>>()
+                        if at_t.keys().collect::<OrderedHashSet<_>>()
+                            != keys.iter().collect::<OrderedHashSet<_>>()
                         {
                             panic!("Different temporal elements returned at different times");
                         }

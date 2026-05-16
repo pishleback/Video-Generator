@@ -503,21 +503,20 @@ impl<const W: u32, const H: u32> InstantaneousSlideElement<W, H> {
 }
 
 impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
-    /// Convert this slideshow into a video
-    pub fn video(mut self, fps: f64) -> VideoSpec {
+    fn video_impl(mut self, fps: f64) -> VideoCompiledSpec {
         // fiddle with self.states so that it
         // - has only slides at even indexes
         // - has only interps at odd intexes
 
         // ensure self.states is non-empty
         if self.states.is_empty() {
-            return VideoSpec::Compiled(VideoCompiledSpec {
+            return VideoCompiledSpec {
                 width: W,
                 height: H,
                 fps,
                 images: vec![],
                 audio: vec![],
-            });
+            };
         }
 
         // ensure self.states does not contain two adjacent interps
@@ -871,12 +870,17 @@ impl<const W: u32, const H: u32> SlideshowBuilder<W, H> {
             t += dt;
         }
 
-        VideoSpec::Compiled(VideoCompiledSpec {
+        VideoCompiledSpec {
             width: W,
             height: H,
             fps,
             images,
             audio: vec![],
-        })
+        }
+    }
+
+    /// Convert this slideshow into a video
+    pub fn video(self, fps: f64) -> VideoSpec {
+        VideoSpec::Compiled(self.video_impl(fps))
     }
 }

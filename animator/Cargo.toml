@@ -13,6 +13,7 @@ imageproc = "0.26.1"
 marching_squares = { path = "../marching_squares" }
 oklab = "1.1.2"
 ordered-float = "5.3.0"
+ordered_hash_map = "0.6.0"
 rand = "0.10.1"
 serde = "1.0.228"
 serde_json = { version = "1.0.149", features = ["float_roundtrip"] }

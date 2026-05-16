@@ -2,6 +2,7 @@ use animator::{
     colour::{ColourBuilder, ColourWithAlpha},
     image::{ImageSpec, PixelsImage},
     slideshow::{Align, MorphInterpType, ShapeInterpType, SlideshowBuilder},
+    timeline::Timeline,
 };
 use core::f64;
 use std::path::Path;
@@ -32,100 +33,47 @@ fn main() {
 
      */
 
-    slideshow.slide(|slide| {});
-
-    slideshow.interp().duration(3.0);
-
     slideshow.slide(|slide| {
         let (title, body) = slide.title_space_split();
         title.canvas(|canvas, t| {
-            canvas.latex("Title");
-        });
-
-        body.left_half().left_half().canvas(|canvas, t| {
-            canvas
-                .maths("\\bullet \\; \\text{Hiiiiiiiiiii}")
-                .align(Align::CenterLeft)
-                .position((0.0, 0.0))
-                .scale(1.0)
-                .interp_id(0);
-            canvas
-                .maths("\\bullet \\; \\text{weee \\(\\displaystyle a+\\frac{b}{c}\\)}")
-                .align(Align::CenterLeft)
-                .position((0.0, 1.0))
-                .scale(1.0)
-                .interp_id(1);
-            canvas
-                .maths("\\bullet \\; \\text{Woooo}")
-                .align(Align::CenterLeft)
-                .position((2.0, 2.0))
-                .scale(1.0)
-                .interp_id(2);
-            canvas
-                .maths("\\bullet \\; \\text{Hiiiiiiiiiii}")
-                .align(Align::CenterLeft)
-                .position((0.0, 3.0))
-                .scale(1.0)
-                .interp_id(3);
-            canvas
-                .maths("\\bullet \\; \\text{weee \\(\\scriptstyle a+\\frac{b}{c}\\)}")
-                .align(Align::CenterLeft)
-                .position((0.0, 4.0))
-                .scale(1.0)
-                .interp_type(ShapeInterpType::Morph(MorphInterpType::Exp))
-                .interp_id(4);
-            canvas
-                .maths("\\bullet \\; \\text{wooo}")
-                .align(Align::CenterLeft)
-                .position((0.0, 5.0))
-                .scale(1.0)
-                .interp_id(5);
+            canvas.maths("\\text{The Graph \\(K_6\\)}");
         });
     });
 
     slideshow.slide(|slide| {
         let (title, body) = slide.title_space_split();
         title.canvas(|canvas, t| {
-            canvas.latex("Title");
-        });
-
-        body.left_half().left_half().canvas(|canvas, t| {
-            canvas
-                .maths("\\bullet \\; \\text{Hiiiiiiiiiii}")
-                .align(Align::CenterLeft)
-                .position((0.0, 0.0))
-                .scale(1.0)
-                .interp_id(0);
-            canvas
-                .maths("\\bullet \\; \\text{weee \\(\\displaystyle a+\\frac{b}{c}\\)}")
-                .align(Align::CenterLeft)
-                .position((0.0, 1.0))
-                .scale(1.0)
-                .interp_id(1);
-            canvas
-                .maths("\\bullet \\; \\text{    Weaiu8}")
-                .align(Align::CenterLeft)
-                .position((3.0, 2.4))
-                .scale(1.0)
-                .interp_id(3);
-            canvas
-                .maths("\\bullet \\; \\text{Hiiiiiiiiiii}")
-                .align(Align::CenterLeft)
-                .position((0.0, 3.0))
-                .scale(1.0)
-                .interp_id(4);
-            canvas
-                .maths("\\bullet \\; \\text{wooo}")
-                .align(Align::CenterLeft)
-                .position((0.0, 5.0))
-                .scale(1.0)
-                .interp_id(5);
+            canvas.maths("\\text{Definition: \\bf{Duad}}");
         });
     });
 
-    slideshow.interp().duration(3.0);
+    slideshow.slide(|slide| {
+        let (title, body) = slide.title_space_split();
+        title.canvas(|canvas, t| {
+            canvas.maths("\\text{Definition: \\bf{Syntheme}}");
+        });
+    });
 
-    slideshow.slide(|slide| {});
+    slideshow.slide(|slide| {
+        let (title, body) = slide.title_space_split();
+        title.canvas(|canvas, t| {
+            canvas.maths("\\text{Definition: \\bf{Pentad}}");
+        });
+    });
+
+    slideshow.slide(|slide| {
+        let (title, body) = slide.title_space_split();
+        title.canvas(|canvas, t| {
+            canvas.maths("\\text{Duads and Synthemes as Permutations}");
+        });
+    });
+
+    slideshow.slide(|slide| {
+        let (title, body) = slide.title_space_split();
+        title.canvas(|canvas, t| {
+            canvas.maths("\\text{Duads and Synthemes as Permutations}");
+        });
+    });
 
     let video = slideshow.video(30.0);
     let path = video.make_path();

@@ -98,6 +98,7 @@ dependencies = [
  "marching_squares",
  "oklab",
  "ordered-float",
+ "ordered_hash_map",
  "rand 0.10.1",
  "serde",
  "serde_json",
@@ -1706,6 +1707,8 @@ version = "0.15.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9229cfe53dfd69f0609a49f65461bd93001ea1ef889cd5529dd176593f5338a1"
 dependencies = [
+ "allocator-api2",
+ "equivalent",
  "foldhash 0.1.5",
 ]
 
@@ -2948,6 +2951,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b7d950ca161dc355eaf28f82b11345ed76c6e1f6eb1f4f4479e0323b9e2fbd0e"
 dependencies = [
  "num-traits",
+]
+
+[[package]]
+name = "ordered_hash_map"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe5a1cbf49ce5de21ddae71cd1fbe91ff9e38d6a7a9af366fd9be6cea94d856f"
+dependencies = [
+ "hashbrown 0.15.5",
 ]
 
 [[package]]
