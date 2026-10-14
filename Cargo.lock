@@ -2495,10 +2495,7 @@ dependencies = [
 [[package]]
 name = "marching_squares"
 version = "0.1.0"
-dependencies = [
- "image",
- "marching_squares",
-]
+source = "git+https://github.com/pishleback/marching_squares.git#ad688c9cf1af7bc08544ba36c01690af87a1ca17"
 
 [[package]]
 name = "matchers"
